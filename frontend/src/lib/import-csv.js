@@ -413,7 +413,7 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
     const end = day.end != null ? base + day.end : start
     const w = {
       id: 'iw' + uid(), d, start, end: end > start ? end : start,
-      routineId: null, name: day.name || 'Imported', entries, prs: [],
+      routineId: null, name: day.name || 'Imported', entries, prs: [], origin: 'import', unit,
     }
     w.vol = entries.reduce((a, e) => a + e.sets.reduce((b, s) => b + (s.w || 0) * (s.r || 0), 0), 0)
     return w

@@ -89,6 +89,17 @@ function InvitesCard({ invites, reload }) {
   </div>
 }
 
+function SocialModeration({ data, reload }) {
+  const toast = useUI(s => s.toast)
+  if (!data?.enabled) return null
+  const act = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body) }).then(() => { toast('Social content removed'); reload() }).catch(e => toast(e.message))
+  return <div className="card"><div className="row between"><h2 style={{ margin: 0 }}>Social moderation</h2><span className="tag acc">{data.profiles.filter(p => p.enabled).length} members</span></div>
+    <div className="small muted" style={{ margin: '6px 0 10px' }}>{data.posts.length} posts · {data.comments.length} comments · {data.challenges.length} challenges</div>
+    {data.posts.slice(0, 8).map(post => <div key={post.id} className="row between" style={{ padding: '8px 0', borderBottom: '1px solid var(--sep)' }}><div><b className="small">{post.author}</b><div className="dim" style={{ fontSize: '.72rem' }}>{post.routine} · {fmtDate(post.date, true)}</div></div><button className="iconbtn" style={{ color: 'var(--red)', width: 32, height: 32 }} aria-label="remove post" onClick={() => confirmSheet({ title: 'Remove social post?', message: 'The member’s private workout remains intact.', confirmText: 'Remove', danger: true, onConfirm: () => act('/api/admin/social/remove-post', { postId: post.id }) })}><Icon name="trash" /></button></div>)}
+    {data.comments.slice(0, 8).map(comment => <div key={comment.id} className="row between" style={{ padding: '8px 0', borderBottom: '1px solid var(--sep)' }}><div><b className="small">{comment.author}</b><div className="dim" style={{ fontSize: '.72rem' }}>{comment.text}</div></div><button className="iconbtn" style={{ color: 'var(--red)', width: 32, height: 32 }} aria-label="remove comment" onClick={() => act('/api/admin/social/remove-comment', { commentId: comment.id })}><Icon name="trash" /></button></div>)}
+  </div>
+}
+
 export default function Admin() {
   const nav = useNavigate()
   const user = useStore(s => s.user)
@@ -97,11 +108,13 @@ export default function Admin() {
   const [users, setUsers] = useState(null)
   const [invites, setInvites] = useState(null)
   const [inviteOnly, setInviteOnly] = useState(false)
+  const [social, setSocial] = useState(null)
 
   const loadUsers = () => api('/api/admin/users').then(d => { setUsers(d.users); setInviteOnly(d.invite_only) }).catch(e => toast(e.message || 'Failed to load'))
   const loadInvites = () => api('/api/admin/invites').then(d => setInvites(d.invites)).catch(() => {})
+  const loadSocial = () => api('/api/admin/social').then(setSocial).catch(() => {})
   // poll every 15s so the "training now" section stays live without a manual refresh
-  useEffect(() => { if (!user?.admin) return; loadUsers(); loadInvites(); const iv = setInterval(loadUsers, 15000); return () => clearInterval(iv) }, [])
+  useEffect(() => { if (!user?.admin) return; loadUsers(); loadInvites(); loadSocial(); const iv = setInterval(loadUsers, 15000); return () => clearInterval(iv) }, [])
   if (!user?.admin) return null
 
   const openUser = id => openSheet(close => <UserDetail id={id} onChanged={loadUsers} close={close} />)
@@ -114,7 +127,7 @@ export default function Admin() {
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label="Back"><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, marginLeft: 8 }}><h1 style={{ margin: 0 }}>Admin</h1>
         <div className="sub">{users ? users.length + ' users · ' + activeCount + ' active this week' : 'Loading…'}</div></div>
-      <button className="iconbtn" onClick={() => { loadUsers(); loadInvites() }} aria-label="refresh">↻</button>
+      <button className="iconbtn" onClick={() => { loadUsers(); loadInvites(); loadSocial() }} aria-label="refresh">↻</button>
     </div>
 
     <div className="tiles" style={{ marginBottom: 12 }}>
@@ -134,6 +147,8 @@ export default function Admin() {
     </div>}
 
     <AdminCoach />
+
+    <SocialModeration data={social} reload={loadSocial} />
 
     <InvitesCard invites={invites} reload={loadInvites} />
 

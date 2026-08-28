@@ -13,6 +13,7 @@ import * as coachConfig from './coach/config.js';
 import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
 import { startCadence } from './coach/cadence.js';
+import { createSocialService } from './social/service.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -23,6 +24,10 @@ const RP_NAME = process.env.RP_NAME || 'openGym';
 // code the admin generates. Both default off so a fresh self-hosted instance stays open.
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const INVITE_ONLY = /^(1|true|yes|on)$/i.test(process.env.INVITE_ONLY || '');
+const SOCIAL_ENABLED = /^(1|true|yes|on)$/i.test(process.env.SOCIAL_ENABLED || '');
+const SOCIAL_TZ = process.env.SOCIAL_TZ || 'Europe/Madrid';
+const APP_VERSION = process.env.APP_VERSION || 'dev';
+const SOURCE_URL = process.env.SOURCE_URL || 'https://github.com/kxio19/opengym';
 // 90 days keeps someone who trains a few times a week permanently signed in without a stolen
 // cookie staying good for a year. Overridable because a family instance and one on the open
 // internet don't want the same number. Only affects cookies minted from now on — the expiry is
@@ -60,6 +65,7 @@ const stateFile = uid => path.join(DATA, 'state-' + uid.replace(/[^a-zA-Z0-9_-]/
 function readState(uid) {
   try { return JSON.parse(fs.readFileSync(stateFile(uid), 'utf8')); } catch { return null; }
 }
+function writeState(uid, state) { atomicWrite(stateFile(uid), JSON.stringify(state)); }
 
 /* ---------- push notifications (Web Push / VAPID) ---------- */
 const vapidFile = path.join(DATA, 'vapid.json');
@@ -233,12 +239,12 @@ function json(res, code, obj, extraHeaders) {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(extraHeaders || {}) });
   res.end(body);
 }
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', d => {
       size += d.length;
-      if (size > MAX_BODY) { reject(new Error('body too large')); req.destroy(); return; }
+      if (size > limit) { reject(new Error('body too large')); req.destroy(); return; }
       chunks.push(d);
     });
     req.on('end', () => {
@@ -263,9 +269,44 @@ function livePresence(uid) {
 }
 setInterval(() => { for (const [k, v] of presence) if (Date.now() - v.updatedAt > PRESENCE_TTL) presence.delete(k); }, 30000).unref();
 
+const social = createSocialService({
+  dataDir: DATA,
+  users: () => db.users,
+  readState,
+  writeState,
+  isAdmin,
+  sendPush,
+  enabled: SOCIAL_ENABLED,
+  timeZone: SOCIAL_TZ
+});
+
+// Small in-process guard in addition to the reverse proxy. The instance is deliberately
+// single-process, so a per-process sliding window is enough to stop accidental loops and
+// low-effort abuse without adding another service. NPM remains the outer IP-based limit.
+const rateBuckets = new Map();
+function rateRule(key) {
+  if (/^POST \/api\/(register|login)\//.test(key)) return { max: 20, ms: 10 * 60000 };
+  if (key === 'POST /api/social/comments/new') return { max: 5, ms: 60000 };
+  if (key === 'POST /api/social/challenges/new') return { max: 10, ms: 86400000 };
+  if (key.startsWith('POST /api/social/') || key === 'PUT /api/social/me') return { max: 30, ms: 60000 };
+  if (key.startsWith('GET /api/social/')) return { max: 120, ms: 60000 };
+  return null;
+}
+function rateAllowed(req, key) {
+  const rule = rateRule(key); if (!rule) return { ok: true };
+  const user = readSession(req);
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const actor = user?.id || forwarded || req.socket.remoteAddress || 'unknown';
+  const bucketKey = `${key}:${actor}`, cutoff = Date.now() - rule.ms;
+  const hits = (rateBuckets.get(bucketKey) || []).filter(ts => ts > cutoff);
+  if (hits.length >= rule.max) return { ok: false, retryAfter: Math.max(1, Math.ceil((hits[0] + rule.ms - Date.now()) / 1000)) };
+  hits.push(Date.now()); rateBuckets.set(bucketKey, hits); return { ok: true };
+}
+setInterval(() => { const cutoff = Date.now() - 86400000; for (const [key, hits] of rateBuckets) if (!hits.some(ts => ts > cutoff)) rateBuckets.delete(key); }, 3600000).unref();
+
 /* ---------- routes ---------- */
 const routes = {
-  'GET /api/health': async (req, res) => json(res, 200, { ok: true, users: db.users.length }),
+  'GET /api/health': async (req, res) => json(res, 200, { ok: true, users: db.users.length, version: APP_VERSION }),
 
   // Public config the login screen needs before anyone is signed in. `coach` is absent unless
   // the instance has both switched the Coach on and successfully connected a provider — the
@@ -273,7 +314,7 @@ const routes = {
   // the app it was before the feature existed.
   'GET /api/config': async (req, res) => {
     const coach = coachConfig.publicConfig();
-    json(res, 200, { invite_only: INVITE_ONLY, ...(coach ? { coach } : {}) });
+    json(res, 200, { invite_only: INVITE_ONLY, social: { enabled: SOCIAL_ENABLED }, version: APP_VERSION, source_url: SOURCE_URL, ...(coach ? { coach } : {}) });
   },
 
   'GET /api/me': async (req, res) => {
@@ -405,7 +446,8 @@ const routes = {
     const body = await readBody(req);
     if (!body.state || typeof body.state !== 'object') return json(res, 400, { error: 'state required' });
     delete body.state.active;              // in-progress workouts stay device-local
-    atomicWrite(stateFile(user.id), JSON.stringify(body.state));
+    writeState(user.id, body.state);
+    if (SOCIAL_ENABLED) await social.syncUserState(user, body.state);
     json(res, 200, { ok: true, ts: body.state._ts || null });
   },
 
@@ -562,6 +604,7 @@ const routes = {
   // Routes live in coach/routes.js and are handed the helpers above rather than importing
   // them: they are closures over db and SECRET, and passing them in keeps that module free of
   // a cycle. Every one of them is inert while the feature is unconfigured.
+  ...social.routes({ json, readBody: req => readBody(req, 64 * 1024), readSession, requireAdmin }),
   ...coachRoutes({ json, readBody, readSession, requireAdmin })
 };
 
@@ -587,6 +630,8 @@ http.createServer(async (req, res) => {
   const key = req.method + ' ' + url.pathname;
   const handler = routes[key];
   if (!handler) return json(res, 404, { error: 'not found' });
+  const rate = rateAllowed(req, key);
+  if (!rate.ok) return json(res, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });
   try { await handler(req, res); }
   catch (e) {
     console.error(key, e);

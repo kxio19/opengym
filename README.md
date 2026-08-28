@@ -27,16 +27,17 @@ No account on someone else's server, no subscription, no ads. Just `docker compo
 
 <br>
 
-> ### 🤖 This is a fork — it adds the AI Coach
+> ### 🤖👥 This fork adds the AI Coach and Private Social
 >
 > A fork of [DuarteSantos8/openGym](https://github.com/DuarteSantos8/openGym) that adds one
-> optional feature: an AI that **designs** your training plan and **revises it from what you
-> actually log**, running on your own server under your own provider account.
+> two optional, self-hosted features: an AI that **designs** and reviews your training plan,
+> plus an invite-only training community with a privacy-first feed, weekly podiums and challenges.
 >
-> Everything else is upstream openGym. With the Coach switched off, this is byte-for-byte the
-> app it forked from.
+> Both features are instance-gated and require separate per-profile consent. Private Social never
+> publishes or ranks imported/old history, and every workout has its own sharing controls.
 >
 > **→ [What it does and how to use it](docs/AI_COACH.md)** ·
+> [Private Social & KaioHUB deploy](docs/KAIOHUB_DEPLOY.md) ·
 > [Claude setup](Claude-setup-instructions.md) ·
 > [ChatGPT / Codex setup](ChatGPT-setup-instructions.md) ·
 > [design deck (PDF)](openGym_AI_Strategy.pdf)
@@ -90,10 +91,11 @@ as a home-screen app, passkey sign-in, offline support, sync across your phone a
 - 💪 **Muscle map** — a front-and-back body diagram shaded by how much work each muscle got, over a week, a month or all time. It names the muscles you *haven't* trained in that period, previews what a routine hits while you build it, and shows what you just trained when you finish. Male or female figure, your pick
 - 🔔 **Push notifications** — rest-timer alerts even with the app closed, plus an optional reminder on days you have a workout planned but haven't logged one. Opt in per profile; keys are generated on first run, nothing to configure
 - 🤖 **AI Coach** (optional) — an AI that *designs* your plan and adjusts it from what you actually log. A short intake produces a complete weekly plan you can refine in plain language; on demand or on a schedule it reads your stalls, effort ratings, adherence and body-weight trend and proposes **discrete, explained changes** you accept one by one. Choose the official Claude Agent SDK or the bundled OpenAI Codex CLI with ChatGPT device-code sign-in; it is off until the instance owner enables it, needs each profile's separate consent, and never changes anything without your approval — every change-set is snapshotted and revertible. The progression engine still owns your session-to-session weights. **[Full guide →](docs/AI_COACH.md)**
+- 👥 **Private Social** (optional) — opt-in workout feed, kudos, plain-text comments, weekly category podiums and an overall normalized leaderboard, plus voluntary challenges. Sharing fields are controlled per profile and per workout; rankings have separate consent, and imported or pre-consent history is never eligible
 - 🔑 **Passkeys, not passwords** — Face ID / Touch ID / fingerprint login; each profile keeps its own data, synced across devices
 - 🛠️ **Admin dashboard** (optional) — for whoever runs the instance: who's training right now, per-user history, disable accounts, and invite-only signup. Off by default, so a fresh instance stays open with no admin
 - 🎨 **Designed, not assembled** — light/dark themes and 8 accent colors saved to your profile, over a hand-drawn icon set instead of emoji, so it looks the same on every phone
-- 🌍 **12 languages** — full UI translation (EN, DE, ES, FR, IT, PT, PL, TR, RU, ZH, KO, HI); exercise instructions localized in 10 of them, loaded on demand so the app stays fast
+- 🌍 **12 languages** — the core tracker is fully translated (EN, DE, ES, FR, IT, PT, PL, TR, RU, ZH, KO, HI); Private Social is translated in Spanish and uses English fallback strings elsewhere; exercise instructions are localized in 10 languages
 - 📥 **Bring your history with you** — import from **FitNotes** (Android and iOS), **Strong** and **Hevy**, or body weight straight out of an **Apple Health** export. Exercise names are matched against the library and anything unrecognised becomes one of your own exercises, so nothing in the file is dropped
 - 📦 **Yours to keep** — one-tap JSON export/import, guest mode, **no telemetry**
 - 📱 **Standalone Android app** — the whole tracker as a sideloadable APK: no account, no server, data on the phone, native workout reminders ([download](https://opengym.duarte-santos.ch))
@@ -169,6 +171,10 @@ All via `.env` (see `.env.example`):
 | `RP_NAME`     | Name shown in the passkey prompt                     | `openGym`               |
 | `ADMIN_UIDS`  | User ids that get the admin dashboard (comma-separated) | *(none)*             |
 | `INVITE_ONLY` | Require an invite code to create a profile           | *(off)*                 |
+| `SOCIAL_ENABLED` | Enable the Private Social API and UI for profiles that opt in | *(off)*          |
+| `SOCIAL_TZ` | IANA timezone used for Monday–Sunday rankings | `Europe/Madrid` |
+| `SOURCE_URL` | Public AGPL source URL shown in Settings | `https://github.com/kxio19/opengym` |
+| `APP_VERSION` | Deploy identifier returned by health/config endpoints | `dev` |
 | `COACH_DISABLED` | Force the AI Coach off, whatever the admin dashboard says | *(unset)*        |
 
 Push notification keys are generated on first run and saved to `./data/vapid.json` — nothing to set.

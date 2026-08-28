@@ -20,6 +20,7 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
+import { SOCIAL_FIELD_DEFAULTS, socialMe, savePostSettings } from './lib/social-api.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -696,6 +697,19 @@ export const dayAssignSheet = day => ui().openSheet(close => <DayAssign day={day
 /* ============================ workout detail ============================ */
 function WorkoutDetail({ w, close }) {
   const st = useStore(s => s.S)
+  const socialAvailable = !!useStore(s => s.config)?.social?.enabled && !!w.social?.eligible
+  const [shared, setShared] = useState(!!w.social?.publish)
+  const [shareFields, setShareFields] = useState({ ...SOCIAL_FIELD_DEFAULTS, ...(w.social?.fields || {}) })
+  const saveShared = async (publish, fields = shareFields) => {
+    setShared(publish)
+    update(s => { const rec = s.workouts.find(x => x.id === w.id); if (rec?.social) rec.social = { ...rec.social, publish, fields } })
+    try { await useStore.getState().pushState(); await savePostSettings({ workoutId: w.id, publish, fields }); toast(publish ? t('Workout shared') : t('Workout removed from Social')) }
+    catch (e) { toast(e.message) }
+  }
+  const setField = (key, value) => {
+    const fields = { ...shareFields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) }
+    setShareFields(fields); saveShared(shared, fields)
+  }
   return <>
     <h3>{w.name}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{[fmtDate(w.d, true), ...durPart(w.end - w.start), fmtVol(w.vol, st.unit), ...(w.bw ? [fmtNum(w.bw) + ' ' + st.unit] : [])].join(' · ')}</div>
@@ -707,6 +721,7 @@ function WorkoutDetail({ w, close }) {
           <div className="ss">{e.sets.filter(s => s.done).map(s => setLabel(e.id, s, e.target)).join('  ·  ') || t('no sets')}</div></div>
       </div>
     })}
+    {socialAvailable && <div className="finish-social" style={{ marginBottom: 12 }}><div className="social-toggle"><div><b>{t('Share with your group')}</b><div className="small muted">{t('Changing this does not change ranking eligibility.')}</div></div><Switch checked={shared} onChange={saveShared} /></div>{shared && <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={shareFields[key]} disabled={(key === 'exactSets' || key === 'effort') && !shareFields.exerciseNames} onChange={value => setField(key, value)} /></div>)}</details>}</div>}
     <Button variant="danger" onClick={() => confirmSheet({ title: t('Delete workout?'), message: t('This removes it from your history for good.'), confirmText: t('Delete'), danger: true, onConfirm: () => { update(s => { s.workouts = s.workouts.filter(x => x.id !== w.id) }); close(); toast(t('Workout deleted')) } })}>{t('Delete workout')}</Button>
   </>
 }
@@ -883,6 +898,25 @@ function SessionRating({ w }) {
 function FinishSummary({ w, prs, e1prs = [], close }) {
   const st = useStore(s => s.S)
   const coachOn = !!useStore(s => s.config)?.coach?.enabled && !!st.coach?.consent?.agreedAt
+  const socialAvailable = !!useStore(s => s.config)?.social?.enabled && !MOBILE
+  const [social, setSocial] = useState(null)
+  const [socialChecked, setSocialChecked] = useState(!socialAvailable)
+  useEffect(() => {
+    if (!socialAvailable) return
+    socialMe().then(({ profile }) => {
+      if (profile?.enabled) setSocial({ publish: !!profile.defaultPublish, fields: { ...SOCIAL_FIELD_DEFAULTS, ...profile.fields } })
+    }).catch(() => {}).finally(() => setSocialChecked(true))
+  }, [socialAvailable])
+  const done = async () => {
+    if (social) {
+      update(s => {
+        const rec = s.workouts.find(x => x.id === w.id)
+        if (rec) rec.social = { eligible: true, publish: !!social.publish, fields: { ...social.fields } }
+      })
+      await useStore.getState().pushState()
+    }
+    close(); nav('/home')
+  }
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>
     <div style={{ fontSize: 44, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="trophy" /></div>
     <h3 style={{ margin: '8px 0' }}>{t('Workout complete!')}</h3>
@@ -899,8 +933,13 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     <h4 className="sec" style={{ textAlign: 'left' }}>{t('What you just trained')}</h4>
     <BodyMap load={loadOfWorkouts([w])} body={st.body} />
     {coachOn && <SessionRating w={w} />}
+    {social && <div className="finish-social">
+      <div className="social-toggle"><div style={{ textAlign: 'left' }}><b>{t('Share with your group')}</b><div className="small muted">{t('This workout can still count in rankings when the post is off.')}</div></div><Switch checked={social.publish} onChange={publish => setSocial(v => ({ ...v, publish }))} /></div>
+      {social.publish && <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={social.fields[key]} disabled={(key === 'exactSets' || key === 'effort') && !social.fields.exerciseNames} onChange={value => setSocial(v => ({ ...v, fields: { ...v.fields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) } }))} /></div>)}</details>}
+    </div>}
     <div style={{ height: 14 }} />
-    <Button variant="primary" onClick={() => { close(); nav('/home') }}>{t('Nice!')}</Button>
+    {!socialChecked && <div className="small muted" style={{ marginBottom: 8 }}>{t('Loading privacy choices…')}</div>}
+    <Button variant="primary" disabled={!socialChecked} onClick={done}>{t('Nice!')}</Button>
   </div>
 }
 export function finishWorkout() {
@@ -928,10 +967,11 @@ function doFinishWorkout() {
   })
   const w = {
     id: A.id, d: A.d, start: A.start, end: Date.now(), routineId: A.routineId, name: A.name, bw: A.bw,
+    origin: 'tracked', unit: st.unit,
     // `target` (what the session prescribed) is kept alongside the sets: without it a
     // finished workout cannot say whether it hit its reps, and a timed session reads back
     // as "0 reps". It is what the progression engine works from.
-    entries: A.entries.map(e => ({ id: e.id, sets: e.sets, topW: e.topW || null, target: e.target || null })).filter(e => e.sets.some(s => s.done)),
+    entries: A.entries.map(e => ({ id: e.id, n: EXIDX[e.id]?.n || e.n || e.id, sets: e.sets, topW: e.topW || null, target: e.target || null })).filter(e => e.sets.some(s => s.done)),
     prs
   }
   w.vol = workoutVolume(w)

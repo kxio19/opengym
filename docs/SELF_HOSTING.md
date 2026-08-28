@@ -137,15 +137,7 @@ refuses the lock while the phone is in Low Power Mode.
 
 ## 7. Updating
 
-Running prebuilt images:
-
-```bash
-git pull                    # picks up compose/config changes
-docker compose pull
-docker compose up -d
-```
-
-Building from source instead:
+This fork intentionally builds its own API and web images from source:
 
 ```bash
 git pull
@@ -155,7 +147,22 @@ docker compose up -d --build
 The app shell is versioned (`?v=N`) so clients pick up changes on next load. Your `./data` and the
 downloaded media are untouched.
 
-## 8. The AI Coach (optional)
+## 8. Private Social (optional)
+
+Private Social is disabled for the whole instance until the owner opts in:
+
+```dotenv
+SOCIAL_ENABLED=1
+SOCIAL_TZ=Europe/Madrid
+SOURCE_URL=https://github.com/kxio19/opengym
+```
+
+Restart with `docker compose up -d --build`. Each profile must then consent separately. Ranking
+participation is independent from feed publication, sharing fields are selected per workout, and
+imports or workouts completed before consent are excluded permanently. Social data lives in
+`data/social.json` and is covered by the same backup as passkeys and private workout state.
+
+## 9. The AI Coach (optional)
 
 The Coach is an AI that designs training plans and reviews them against what your users
 actually log. It is **off on a fresh instance**, and turning it on is entirely a dashboard job

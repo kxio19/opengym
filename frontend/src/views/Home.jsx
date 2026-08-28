@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { effectiveRoutine, effectiveRoutineId, streakWeeks, lastBW, setsDoneActive } from '../lib/history.js'
@@ -13,6 +13,32 @@ import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { useCoachStatus } from '../lib/coach-api.js'
 import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
+import { socialMe, socialFeed, socialRankings } from '../lib/social-api.js'
+
+function SocialPreview({ nav }) {
+  const config = useStore(s => s.config)
+  const user = useStore(s => s.user)
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    if (!config?.social?.enabled) return
+    let live = true
+    socialMe().then(async ({ profile }) => {
+      if (!live) return
+      if (!profile.enabled) return setData({ enabled: false })
+      const [feed, rankings] = await Promise.all([socialFeed(3), socialRankings()])
+      if (live) setData({ enabled: true, posts: feed.posts, podium: rankings.podium })
+    }).catch(() => {})
+    return () => { live = false }
+  }, [config?.social?.enabled])
+  if (!user || !config?.social?.enabled || !data) return null
+  if (!data.enabled) return <div className="card social-preview tappable" onClick={() => nav('/social')}><div className="row between"><div className="row" style={{ gap: 9 }}><span className="lrow-i"><Icon name="personCircle" /></span><div><h2>{t('Social')}</h2><div className="small muted">{t('Share workouts and compete with your training group — only if you opt in.')}</div></div></div><Icon name="chevronRight" className="chev" /></div></div>
+  return <div className="card social-preview tappable" onClick={() => nav('/social')}>
+    <div className="row between"><h2>{t('Social')}</h2><Icon name="chevronRight" className="chev" /></div>
+    {!!data.podium?.length && <div className="home-podium">{data.podium.map((p, i) => <span key={p.userId}>{['🥇', '🥈', '🥉'][i]} {p.name} <b>{p.score}</b></span>)}</div>}
+    {data.posts?.map(p => <div className="social-mini" key={p.id}><b>{p.author}</b><span>{p.routine} · {p.durationMinutes} min</span></div>)}
+    {!data.posts?.length && <div className="small muted">{t('No shared workouts yet.')}</div>}
+  </div>
+}
 
 // A job in flight or a proposal waiting is the only reason the Coach interrupts Home. When it
 // has nothing to say it renders nothing at all — and it only polls while Home is on screen.
@@ -106,6 +132,8 @@ export default function Home() {
     </div>
 
     {coachOn && <CoachCard nav={nav} />}
+
+    <SocialPreview nav={nav} />
 
     {!S.routines.length && !S.active && (
       <div className="card">
