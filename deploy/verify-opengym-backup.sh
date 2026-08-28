@@ -21,7 +21,7 @@ docker compose -f "$compose_dir/docker-compose.yml" run --rm --no-deps -v "$work
 docker run -d --name "$container" --env-file "$compose_dir/.env" \
   -e PORT=3000 -e DATA_DIR=/data -v "$work_dir:/data" opengym-api >/dev/null
 attempt=0
-until docker exec "$container" node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.json()).then(d=>{if(!d.ok||d.users<1)process.exit(1)})"; do
+until docker exec "$container" node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.json()).then(d=>{if(!d.ok||d.users<1)process.exit(1)}).catch(()=>process.exit(1))"; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 20 ]; then
     docker logs "$container"
