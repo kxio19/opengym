@@ -4,7 +4,7 @@ import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
-import { webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
+import { webauthnOK, passkeyLogin, passkeyRegister, passkeyAdd, regenerateRecoveryCodes, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
@@ -56,6 +56,8 @@ export default function Settings() {
     catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Sign-in failed')) }
   }
   const registerHere = () => useUI.getState().openSheet(close => <RegisterInline close={close} setUser={setUser} pushState={pushState} pullState={pullState} toast={toast} />)
+  const addPasskeyHere = () => useUI.getState().openSheet(close => <AddPasskeySheet close={close} toast={toast} />)
+  const recoveryCodesHere = () => useUI.getState().openSheet(close => <RecoveryCodesSheet close={close} toast={toast} />)
   // Ends the profile's sessions on every device — this one included, so on success it lands in
   // the same place as the plain sign-out above (home, local data cleared). On failure nothing
   // local is touched: still signed in here, and say so rather than leaving a half-signed-out app.
@@ -89,6 +91,8 @@ export default function Settings() {
           onClick={() => window.open(REPO, '_blank', 'noopener')} />
       </> : user ? <>
         <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in with passkey — data syncs to this profile.')} />
+        <Row icon="key" iconTint="var(--blue)" title={t('Add another passkey')} subtitle={t('Add this phone or choose another device with the system QR option.')} accessory="chevron" onClick={addPasskeyHere} />
+        <Row icon="shield" iconTint="var(--orange)" title={t('Recovery codes')} subtitle={t('One-time access when none of your passkeys are available.')} accessory="chevron" onClick={recoveryCodesHere} />
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
         {config?.social?.enabled && <Row icon="personCircle" iconTint="var(--acc)" title={t('Social and privacy')} subtitle={t('Profile, rankings and sharing defaults')} accessory="chevron" onClick={() => nav('/social')} />}
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
@@ -359,5 +363,44 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
     <div className="muted small" style={{ marginBottom: 14 }}>{t('Pick a name, then confirm with your device.')}</div>
     <TextField ref={nameRef} placeholder={t('Your name')} maxLength={40} />
     <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
+  </>
+}
+
+function AddPasskeySheet({ close, toast }) {
+  const [label, setLabel] = useState('')
+  const go = async () => {
+    try {
+      const { count } = await passkeyAdd(label.trim() || t('Another device'))
+      close(); toast(t('Passkey added — {0} passkeys now protect this profile.', count))
+    } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Could not add passkey')) }
+  }
+  return <>
+    <h3>{t('Add another passkey')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>{t('Name the device, then choose this device or the QR/another-device option in the secure system dialog.')}</div>
+    <TextField value={label} onChange={e => setLabel(e.target.value)} placeholder={t('Device name, e.g. Mobile')} maxLength={40} />
+    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
+  </>
+}
+
+function RecoveryCodesSheet({ close, toast }) {
+  const [codes, setCodes] = useState(null)
+  const generate = async () => {
+    try { const result = await regenerateRecoveryCodes(); setCodes(result.codes) }
+    catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Could not generate recovery codes')) }
+  }
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(codes.join('\n')); toast(t('Recovery codes copied')) }
+    catch { toast(t('Could not copy codes')) }
+  }
+  return <>
+    <h3>{t('Recovery codes')}</h3>
+    {!codes ? <>
+      <div className="muted small" style={{ marginBottom: 14 }}>{t('Generating new codes invalidates any old ones. Confirm with your passkey, then store the new codes somewhere private.')}</div>
+      <Button variant="primary" onClick={generate}>{t('Generate recovery codes')}</Button>
+    </> : <>
+      <div className="small" style={{ marginBottom: 12 }}>{t('Save these now. They are shown only once and each code works once.')}</div>
+      <pre className="card" style={{ userSelect: 'all', textAlign: 'center', lineHeight: 1.9, letterSpacing: '.08em' }}>{codes.join('\n')}</pre>
+      <div className="row" style={{ gap: 8 }}><Button onClick={copy}>{t('Copy codes')}</Button><Button variant="primary" onClick={close}>{t('Done')}</Button></div>
+    </>}
   </>
 }

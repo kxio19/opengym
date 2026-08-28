@@ -82,6 +82,18 @@ docker compose up -d
 Visit `https://gym.example.com`, create your profile, and add it to your home screen
 (iOS: Share → Add to Home Screen · Android: ⋮ → Add to Home screen).
 
+### Add phones and other devices safely
+
+A passkey may stay only in the password manager that created it. After signing in on the first
+device, open **Settings → Add another passkey**. You can create it on the current device or choose
+the browser/system option for another device (usually a QR flow). Every passkey opens the same
+profile; it does not create another user.
+
+Also open **Settings → Recovery codes** while the first passkey is available. Confirm again with
+that passkey and store the eight codes privately. Each code signs in once. After using one on a
+new phone, immediately add that phone's own passkey in Settings. Generating a new set invalidates
+the previous set; only keyed hashes, never the plaintext codes, are stored in `db.json`.
+
 > Changing `RP_ID` later invalidates existing passkeys (they were bound to the old hostname).
 > Pick your domain before people register.
 
@@ -241,6 +253,8 @@ act on it.
 | Symptom | Fix |
 |---|---|
 | No passkey prompt on my phone | You're on `http://` or an IP, not HTTPS. Set up a domain (section 3). |
+| The phone cannot find the passkey created on my computer | That passkey was not synced to the phone. Use a recovery code, then add the phone under **Settings → Add another passkey**, or add it from the computer using the system QR/another-device option. |
+| I lost every passkey | Use one of the one-time recovery codes created in Settings. Without a passkey or an unused recovery code, the instance administrator must perform a manual account recovery from the server. |
 | "verification failed" on login | `RP_ID`/`ORIGIN` don't match the URL in the address bar. Make them exact, restart. |
 | Media didn't download | `docker compose logs media`. Re-run `docker compose up -d`, or run `./scripts/fetch-media.sh`. |
 | Port 8080 already used | Set `WEB_PORT=9090` in `.env` (and update `ORIGIN` for local testing). |

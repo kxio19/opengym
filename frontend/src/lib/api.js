@@ -57,3 +57,19 @@ export async function passkeyLogin() {
   const res = await api('/api/login/verify', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })
   return res.user
 }
+
+export async function passkeyAdd(label) {
+  const { cid, options } = await api('/api/passkeys/options', { method: 'POST', body: JSON.stringify({ label }) })
+  const cred = await navigator.credentials.create({ publicKey: toCreationOptions(options) })
+  return api('/api/passkeys/verify', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })
+}
+
+export async function regenerateRecoveryCodes() {
+  const { cid, options } = await api('/api/recovery/options', { method: 'POST', body: '{}' })
+  const cred = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
+  return api('/api/recovery/regenerate', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })
+}
+
+export async function recoveryLogin(code) {
+  return api('/api/recovery/login', { method: 'POST', body: JSON.stringify({ code }) })
+}

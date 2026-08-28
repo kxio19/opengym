@@ -14,6 +14,7 @@ import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
 import { startCadence } from './coach/cadence.js';
 import { createSocialService } from './social/service.js';
+import { createRecoveryCodes, findRecoveryCode, hashRecoveryCode } from './auth/recovery.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -285,7 +286,8 @@ const social = createSocialService({
 // low-effort abuse without adding another service. NPM remains the outer IP-based limit.
 const rateBuckets = new Map();
 function rateRule(key) {
-  if (/^POST \/api\/(register|login)\//.test(key)) return { max: 20, ms: 10 * 60000 };
+  if (key === 'POST /api/recovery/login') return { max: 5, ms: 10 * 60000 };
+  if (/^POST \/api\/(register|login|passkeys|recovery)\//.test(key)) return { max: 20, ms: 10 * 60000 };
   if (key === 'POST /api/social/comments/new') return { max: 5, ms: 60000 };
   if (key === 'POST /api/social/challenges/new') return { max: 10, ms: 86400000 };
   if (key.startsWith('POST /api/social/') || key === 'PUT /api/social/me') return { max: 30, ms: 60000 };
@@ -415,6 +417,117 @@ const routes = {
     if (!user) return json(res, 500, { error: 'user missing' });
     if (user.disabled) return json(res, 403, { error: 'this account has been disabled' });
     json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, { 'Set-Cookie': sessionCookie(user) });
+  },
+
+  'GET /api/passkeys': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const passkeys = db.creds.filter(c => c.userId === user.id).map((c, index) => ({
+      label: c.label || (index === 0 ? 'Original passkey' : 'Passkey'),
+      created: c.created || user.created || null
+    }));
+    json(res, 200, { passkeys, recoveryCodes: Array.isArray(user.recoveryCodes) ? user.recoveryCodes.length : 0 });
+  },
+
+  'POST /api/passkeys/options': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req, 4096);
+    const label = String(body.label || '').trim().slice(0, 40) || 'Passkey';
+    const own = db.creds.filter(c => c.userId === user.id);
+    const options = await generateRegistrationOptions({
+      rpName: RP_NAME, rpID: RP_ID,
+      userID: Buffer.from(user.id), userName: user.name, userDisplayName: user.name,
+      attestationType: 'none',
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+      excludeCredentials: own.map(c => ({ id: c.id, transports: c.transports || [] }))
+    });
+    const cid = putChallenge({ challenge: options.challenge, addUserId: user.id, label });
+    json(res, 200, { cid, options });
+  },
+
+  'POST /api/passkeys/verify': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req);
+    const c = takeChallenge(body.cid);
+    if (!c || c.addUserId !== user.id) return json(res, 400, { error: 'challenge expired — try again' });
+    let verification;
+    try {
+      verification = await verifyRegistrationResponse({
+        response: body.credential,
+        expectedChallenge: c.challenge,
+        expectedOrigin: ORIGIN,
+        expectedRPID: RP_ID,
+        requireUserVerification: true
+      });
+    } catch (e) { return json(res, 400, { error: 'verification failed: ' + e.message }); }
+    if (!verification.verified) return json(res, 400, { error: 'not verified' });
+    const { credential } = verification.registrationInfo;
+    if (db.creds.some(x => x.id === credential.id)) return json(res, 409, { error: 'this passkey is already registered' });
+    db.creds.push({
+      id: credential.id, userId: user.id,
+      publicKey: Buffer.from(credential.publicKey).toString('base64url'),
+      counter: credential.counter || 0,
+      transports: body.credential?.response?.transports || [],
+      label: c.label,
+      created: new Date().toISOString()
+    });
+    saveDb();
+    json(res, 200, { ok: true, count: db.creds.filter(x => x.userId === user.id).length });
+  },
+
+  'POST /api/recovery/options': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const own = db.creds.filter(c => c.userId === user.id);
+    const options = await generateAuthenticationOptions({
+      rpID: RP_ID, userVerification: 'required',
+      allowCredentials: own.map(c => ({ id: c.id, transports: c.transports || [] }))
+    });
+    const cid = putChallenge({ challenge: options.challenge, recoveryUserId: user.id });
+    json(res, 200, { cid, options });
+  },
+
+  'POST /api/recovery/regenerate': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req);
+    const c = takeChallenge(body.cid);
+    if (!c || c.recoveryUserId !== user.id) return json(res, 400, { error: 'challenge expired — try again' });
+    const cred = db.creds.find(x => x.id === body.credential?.id && x.userId === user.id);
+    if (!cred) return json(res, 400, { error: 'use a passkey belonging to this profile' });
+    let verification;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response: body.credential,
+        expectedChallenge: c.challenge,
+        expectedOrigin: ORIGIN,
+        expectedRPID: RP_ID,
+        requireUserVerification: true,
+        credential: { id: cred.id, publicKey: b64uToBuf(cred.publicKey), counter: cred.counter, transports: cred.transports }
+      });
+    } catch (e) { return json(res, 400, { error: 'verification failed: ' + e.message }); }
+    if (!verification.verified) return json(res, 400, { error: 'not verified' });
+    cred.counter = verification.authenticationInfo.newCounter;
+    const codes = createRecoveryCodes();
+    const created = new Date().toISOString();
+    user.recoveryCodes = codes.map(code => ({ hash: hashRecoveryCode(code, SECRET), created }));
+    saveDb();
+    json(res, 200, { codes });
+  },
+
+  'POST /api/recovery/login': async (req, res) => {
+    const body = await readBody(req, 4096);
+    const match = findRecoveryCode(db.users, body.code, SECRET);
+    if (!match || match.user.disabled) return json(res, 401, { error: 'invalid or already used recovery code' });
+    match.user.recoveryCodes.splice(match.index, 1);
+    saveDb();
+    const user = match.user;
+    json(res, 200, {
+      user: { id: user.id, name: user.name, admin: isAdmin(user) },
+      recoveryCodesRemaining: user.recoveryCodes.length
+    }, { 'Set-Cookie': sessionCookie(user) });
   },
 
   'POST /api/logout': async (req, res) => json(res, 200, { ok: true }, { 'Set-Cookie': clearCookie }),

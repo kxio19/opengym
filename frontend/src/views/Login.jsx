@@ -1,6 +1,6 @@
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { webauthnOK, passkeyLogin, passkeyRegister, api, BIO } from '../lib/api.js'
+import { webauthnOK, passkeyLogin, passkeyRegister, recoveryLogin, api, BIO } from '../lib/api.js'
 import { hasData } from '../store/useStore.js'
 import { t } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
@@ -42,6 +42,26 @@ function RegisterSheet({ close }) {
   </>
 }
 
+function RecoverySheet({ close }) {
+  const { setUser, pullState } = useStore()
+  const [code, setCode] = useState('')
+  const go = async () => {
+    if (!code.trim()) { useUI.getState().toast(t('Enter a recovery code')); return }
+    try {
+      const { user, recoveryCodesRemaining } = await recoveryLogin(code)
+      setUser(user); await pullState(); close()
+      useUI.getState().toast(t('Signed in — add a passkey on this device. {0} recovery codes remain.', recoveryCodesRemaining))
+    } catch (e) { useUI.getState().toast(e.message || t('Recovery sign-in failed')) }
+  }
+  return <>
+    <h3>{t('Use a recovery code')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>{t('Each code works once. After signing in, add a passkey for this device in Settings.')}</div>
+    <input className="input" autoCapitalize="characters" autoCorrect="off" spellCheck="false" placeholder="OG-XXXX-XXXX-XXXX" maxLength={20}
+      value={code} onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.08em', fontWeight: 600, textAlign: 'center' }} />
+    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Sign in')}</Button>
+  </>
+}
+
 export default function Login() {
   const { setUser, pullState, setGuest } = useStore()
   const signIn = async () => {
@@ -79,6 +99,8 @@ export default function Login() {
         <Button icon="sparkles" onClick={() => useUI.getState().openSheet(close => <RegisterSheet close={close} />)}>{t('Create new profile')}</Button>
         <div style={{ height: 10 }} />
       </> : <div className="card small muted" style={{ textAlign: 'left' }}>{t("This browser doesn't support passkeys — you can still use openGym locally on this device.")}</div>}
+      <Button variant="ghost" icon="key" onClick={() => useUI.getState().openSheet(close => <RecoverySheet close={close} />)}>{t('Use a recovery code')}</Button>
+      <div style={{ height: 10 }} />
       <Button variant="ghost" className="dim" onClick={() => setGuest(true)}>{t('Continue without account')}</Button>
       <div className="dim small" style={{ marginTop: 26, lineHeight: 1.5 }}>{t('Passkeys use {0} — no passwords.', BIO)}<br />{t('Each profile keeps its own plan, workouts & body weight.')}</div>
     </div>

@@ -17,7 +17,8 @@ Esta guía describe el despliegue reproducible preparado para la Raspberry Pi 5.
 2. En Nginx Proxy Manager, instalar `deploy/nginx-proxy-manager-http_top.conf` en `/data/nginx/custom/http_top.conf`, crear `gym.kaiohub.dev` hacia `10.30.0.45:3012`, activar WebSockets, certificado Let's Encrypt, HTTPS forzado y protección contra exploits comunes. En la configuración avanzada del host usar `limit_req zone=opengym_proxy burst=40 nodelay;`.
 3. Desplegar desde PowerShell con `deploy/deploy-opengym.ps1`. El script empaqueta el árbol local, lo copia por SCP y ejecuta `docker compose up -d --build`; no usa Git en la Pi.
 4. Comprobar `/api/health`, crear la passkey de Kaio y configurar su UID en `ADMIN_UIDS`.
-5. Mantener `INVITE_ONLY=1`, `COACH_DISABLED=1` y `SOCIAL_ENABLED=0` durante la validación base.
+5. En Ajustes, generar códigos de recuperación y añadir una passkey del móvil al mismo perfil; no crear otro usuario para el segundo dispositivo.
+6. Mantener `INVITE_ONLY=1`, `COACH_DISABLED=1` y `SOCIAL_ENABLED=0` durante la validación base.
 
 ## Activación social
 
