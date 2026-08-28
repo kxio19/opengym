@@ -280,6 +280,17 @@ h4.sec{
 /* Typing a weight is not a moment for navigating, and the bar would only eat the little
    height the keyboard leaves. The timer is deliberately kept — see #timer below. */
 body.kb-open #tabbar{display:none}
+/* The skirt. In a home-screen PWA iOS sometimes leaves the bar a few points above the
+   real bottom edge once the keyboard has been up — it anchors bottom:0 to a viewport
+   that is still slightly short, and no measurement the page can take will move it back
+   (--kb is 0 here: nothing is focused). This continues the bar's own background past its
+   box so that gap reads as the bar rather than a black band. Off-screen and invisible
+   whenever the bar sits where it should. Not on desktop, where the bar is a floating
+   pill and a rectangle hanging off it would be very visible — see the ≥1000px block. */
+#tabbar::after{
+  content:'';position:absolute;left:0;right:0;top:100%;height:140px;
+  background:inherit;pointer-events:none;
+}
 #tabbar button{
   flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
   color:var(--label-3);font-size:10px;font-weight:500;letter-spacing:.005em;padding-top:3px;
@@ -957,6 +968,7 @@ body.kb-open #tabbar{display:none}
     padding:7px 10px 9px;box-shadow:0 12px 40px -10px rgba(0,0,0,.5);
   }
   #tabbar button.start{margin-top:-26px}
+  #tabbar::after{display:none}
   .sheet{left:50%;right:auto;margin-left:-320px;width:640px;border-radius:var(--r-xl) var(--r-xl) 0 0}
   .center{width:340px}
   #timer{left:50%;right:auto;margin-left:-260px;width:520px;bottom:calc(112px + var(--kb,0px))}
