@@ -2,7 +2,11 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<!-- interactive-widget: without it the on-screen keyboard shrinks only the visual
+     viewport, and position:fixed bars stay anchored where the keyboard edge was even
+     after it closes (issue: the tab bar floating mid-screen during a workout).
+     Honoured by Chrome/Android; iOS ignores it, which is what useKeyboardInset covers. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,interactive-widget=resizes-content">
 <title>openGym</title>
 <meta name="description" content="Registro personal de gimnasio y peso corporal">
 <meta name="theme-color" content="#0c0e12">

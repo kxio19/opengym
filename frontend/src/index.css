@@ -115,7 +115,7 @@ body{
   background:var(--bg);color:var(--label);
   font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display','Segoe UI',Roboto,system-ui,sans-serif;
   font-size:17px;line-height:1.29;letter-spacing:-.01em;
-  min-height:100vh;overscroll-behavior-y:none;overflow-x:clip;
+  min-height:100vh;min-height:100dvh;overscroll-behavior-y:none;overflow-x:clip;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
   touch-action:manipulation;
   font-variant-numeric:tabular-nums;
@@ -269,7 +269,7 @@ h4.sec{
 
 /* ----------------------------------------------------------- tab bar ----- */
 #tabbar{
-  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  position:fixed;left:0;right:0;bottom:var(--kb,0px);z-index:50;
   display:flex;justify-content:space-around;align-items:flex-end;
   padding:7px 6px calc(6px + var(--sab));
   background:color-mix(in srgb,var(--bg-el) 72%,transparent);
@@ -277,6 +277,9 @@ h4.sec{
   border-top:var(--hair) solid var(--sep-op);
 }
 :root[data-theme="light"] #tabbar{background:rgba(249,249,251,.78)}
+/* Typing a weight is not a moment for navigating, and the bar would only eat the little
+   height the keyboard leaves. The timer is deliberately kept — see #timer below. */
+body.kb-open #tabbar{display:none}
 #tabbar button{
   flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
   color:var(--label-3);font-size:10px;font-weight:500;letter-spacing:.005em;padding-top:3px;
@@ -603,7 +606,7 @@ h4.sec{
 
 /* --- rest timer --- */
 #timer{
-  position:fixed;left:12px;right:12px;bottom:calc(88px + var(--sab));z-index:60;
+  position:fixed;left:12px;right:12px;bottom:calc(88px + var(--sab) + var(--kb,0px));z-index:60;
   /* nearly opaque: the set rows underneath were reading through the old 82% and made the
      clock hard to pick out mid-set. The blur stays, so it still sits above the page. */
   background:color-mix(in srgb,var(--surface) 97%,transparent);
@@ -649,7 +652,7 @@ h4.sec{
   padding:8px 18px calc(20px + var(--sab));
   box-sizing:border-box;max-height:90vh;max-height:90dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;
   animation:sheetup .34s var(--ease);
-  overscroll-behavior:contain;touch-action:pan-y;will-change:transform;
+  overscroll-behavior:contain;touch-action:pan-y;
 }
 :root[data-theme="light"] .sheet{background:var(--bg)}
 @keyframes sheetup{from{transform:translateY(100%)}to{transform:none}}
@@ -813,7 +816,7 @@ h4.sec{
 /* --- toast --- */
 #toast{
   position:fixed;left:50%;transform:translateX(-50%) translateY(6px);
-  bottom:calc(96px + var(--sab));z-index:200;
+  bottom:calc(96px + var(--sab) + var(--kb,0px));z-index:200;
   background:color-mix(in srgb,var(--surface-2) 88%,transparent);
   backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
   border-radius:99px;padding:11px 20px;font-size:15px;font-weight:500;
@@ -910,6 +913,7 @@ h4.sec{
 .post-media-wrap{position:relative;margin:10px -16px 10px}
 .post-media{
   display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;
   scrollbar-width:none;
 }
 .post-media::-webkit-scrollbar{display:none}
@@ -921,6 +925,7 @@ h4.sec{
 .post-media-page .bodymap{width:70%;height:70%}
 .post-media-page.post-media-list{
   aspect-ratio:auto;max-height:320px;overflow-y:auto;display:block;padding:12px 16px;
+  overscroll-behavior:contain;touch-action:pan-y;
 }
 .post-media-page.post-media-list .social-entry:last-child{border-bottom:0}
 .post-dots{
@@ -947,14 +952,14 @@ h4.sec{
   .tiles{grid-template-columns:repeat(4,1fr)}
   .cols .tiles{grid-template-columns:1fr 1fr}
   #tabbar{
-    left:50%;right:auto;bottom:16px;transform:translateX(-50%);width:520px;
+    left:50%;right:auto;bottom:calc(16px + var(--kb,0px));transform:translateX(-50%);width:520px;
     border:var(--hair) solid var(--sep-op);border-radius:var(--r-xl);
     padding:7px 10px 9px;box-shadow:0 12px 40px -10px rgba(0,0,0,.5);
   }
   #tabbar button.start{margin-top:-26px}
   .sheet{left:50%;right:auto;margin-left:-320px;width:640px;border-radius:var(--r-xl) var(--r-xl) 0 0}
   .center{width:340px}
-  #timer{left:50%;right:auto;margin-left:-260px;width:520px;bottom:112px}
+  #timer{left:50%;right:auto;margin-left:-260px;width:520px;bottom:calc(112px + var(--kb,0px))}
   /* 520px fits the clock, the bar and all three controls on one line again */
   #timer.rest{flex-direction:row;align-items:center;gap:14px}
   #timer.rest .head{flex:1;min-width:0}
