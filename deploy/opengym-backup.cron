@@ -1,0 +1,1 @@
+30 3 * * * root /usr/local/sbin/opengym-backup >> /var/log/opengym-backup.log 2>&1

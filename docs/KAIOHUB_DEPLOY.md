@@ -31,7 +31,7 @@ El historial anterior y las importaciones llevan `origin: import` o carecen de e
 
 ## Backups y recuperación
 
-Instalar `deploy/opengym-backup.sh` en la Pi y programarlo diariamente. Conserva 30 días y valida el archivo antes de publicarlo. `deploy/verify-opengym-backup.sh ARCHIVO` realiza una restauración aislada en un directorio temporal y comprueba `db.json`, `social.json` y los estados sin tocar producción.
+Instalar `deploy/opengym-backup.sh` como `/usr/local/sbin/opengym-backup`, `deploy/verify-opengym-backup.sh` como `/usr/local/sbin/opengym-verify-backup` y `deploy/opengym-backup.cron` como `/etc/cron.d/opengym-backup`. Se ejecuta cada día a las 03:30, conserva 30 días y valida el archivo antes de publicarlo. `opengym-verify-backup ARCHIVO` realiza una restauración aislada en un directorio temporal y comprueba `db.json`, `social.json` y los estados sin tocar producción.
 
 Para una restauración real: detener los contenedores, mover `/DATA/AppData/opengym` a una ruta fechada de seguridad, extraer el backup en una carpeta nueva con el mismo nombre, comprobar propietario/permisos y arrancar. No sobrescribir nunca la carpeta viva sin conservar primero la anterior.
 
