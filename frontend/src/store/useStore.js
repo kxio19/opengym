@@ -7,7 +7,7 @@ import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
-  unit: 'kg', restSec: 90, sound: true, keepAwake: true, lang: 'en',
+  unit: 'kg', restSec: 90, sound: true, keepAwake: true, lang: 'es', langDefaultEs: 1,
   theme: 'dark', accent: 'lime', body: 'male', targetW: null,
   bodyweight: [], routines: [], week: {}, dayPlan: {},
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
@@ -23,10 +23,22 @@ export const DEF = {
 }
 const clone = o => JSON.parse(JSON.stringify(o))
 
+// Before v1.3.3 English was written into every profile even when nobody had chosen a language.
+// There was no explicit-choice marker, so migrate those legacy states once to this instance's
+// Spanish default. From then on langDefaultEs stays present and any later language choice wins.
+function withDefaults(saved) {
+  const next = Object.assign(clone(DEF), saved || {})
+  if (!saved || saved.langDefaultEs !== 1) {
+    next.lang = 'es'
+    next.langDefaultEs = 1
+  }
+  return next
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return Object.assign(clone(DEF), JSON.parse(raw))
+    if (raw) return withDefaults(JSON.parse(raw))
   } catch (e) { /* ignore */ }
   return clone(DEF)
 }
@@ -98,7 +110,7 @@ export const useStore = create((set, get) => {
       mut(S)
       persist(S, push)
     },
-    replaceState(S, push = false) { persist(clone(S), push) },
+    replaceState(S, push = false) { persist(withDefaults(S), push) },
 
     isGuest: () => localStorage.getItem('gym_guest') === '1',
     setGuest(v) { if (v) localStorage.setItem('gym_guest', '1'); else localStorage.removeItem('gym_guest'); set({}) },
@@ -122,9 +134,11 @@ export const useStore = create((set, get) => {
         const dirty = localStorage.getItem('gym_dirty') === '1'
         if (state && (!hasData(S) || ((state._ts || 0) >= (S._ts || 0) && !dirty))) {
           const active = S.active
-          const next = Object.assign(clone(DEF), state)
+          const migratedLanguage = state.langDefaultEs !== 1
+          const next = withDefaults(state)
           if (active) next.active = active
           persist(next, false)
+          if (migratedLanguage) await get().pushState()
         } else if (hasData(S)) { await get().pushState() }
       } catch (e) { /* offline — keep local */ }
     },
@@ -161,7 +175,7 @@ export const useStore = create((set, get) => {
         const saved = await nativeLoad()
         const S = get().S
         if (saved && (!hasData(S) || (saved._ts || 0) >= (S._ts || 0))) {
-          persist(Object.assign(clone(DEF), saved), false)
+          persist(withDefaults(saved), false)
         } else if (hasData(S)) {
           nativeSave(S)   // first run after an update from a file-less version: seed the mirror
         }

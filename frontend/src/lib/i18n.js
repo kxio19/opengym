@@ -20,7 +20,7 @@ const DATE_LOCALES = {
 const localePacks = import.meta.glob('../locales/*.js')
 const instrPacks = import.meta.glob('../instr/*.js')
 
-let lang = 'en'
+let lang = 'es'
 let dict = {}
 let instr = null            // { exId: [steps] } for the current language, null = English
 let version = 0
@@ -28,7 +28,7 @@ const subs = new Set()
 const notify = () => { version++; subs.forEach(f => f()) }
 
 export const getLang = () => lang
-export const dateLocale = () => DATE_LOCALES[lang] || 'en-GB'
+export const dateLocale = () => DATE_LOCALES[lang] || 'es-ES'
 
 // Translate a source string; {0},{1}… are replaced with args (also on the English fallback).
 export function t(s, ...args) {
@@ -40,7 +40,7 @@ export function t(s, ...args) {
 export const instrFor = ex => (instr && instr[ex.id]) || ex.st || []
 
 export async function setLang(l) {
-  if (!LANGS[l]) l = 'en'
+  if (!LANGS[l]) l = 'es'
   if (l === lang && version > 0) return
   lang = l
   try {
