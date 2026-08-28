@@ -4,7 +4,7 @@ import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
-import { webauthnOK, passkeyLogin, passkeyRegister, passkeyAdd, regenerateRecoveryCodes, IS_ANDROID } from '../lib/api.js'
+import { webauthnOK, passkeyLogin, passkeyRegister, passkeyAdd, regenerateRecoveryCodes, passwordLogin, passwordRegister, passwordSetWithPasskey, passwordChange, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
@@ -55,9 +55,11 @@ export default function Settings() {
     try { const u = await passkeyLogin(); setUser(u); await pullState(); toast(t('Welcome back, {0}', u.name)) }
     catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Sign-in failed')) }
   }
-  const registerHere = () => useUI.getState().openSheet(close => <RegisterInline close={close} setUser={setUser} pushState={pushState} pullState={pullState} toast={toast} />)
-  const addPasskeyHere = () => useUI.getState().openSheet(close => <AddPasskeySheet close={close} toast={toast} />)
+  const registerHere = () => useUI.getState().openSheet(close => <RegisterInline close={close} setUser={setUser} pushState={pushState} pullState={pullState} toast={toast} inviteOnly={!!config?.invite_only} />)
+  const signInPasswordHere = () => useUI.getState().openSheet(close => <PasswordLoginInline close={close} setUser={setUser} pullState={pullState} toast={toast} />)
+  const addPasskeyHere = () => useUI.getState().openSheet(close => <AddPasskeySheet close={close} toast={toast} setUser={setUser} />)
   const recoveryCodesHere = () => useUI.getState().openSheet(close => <RecoveryCodesSheet close={close} toast={toast} />)
+  const passwordHere = () => useUI.getState().openSheet(close => <PasswordSettingsSheet close={close} toast={toast} user={user} setUser={setUser} />)
   // Ends the profile's sessions on every device — this one included, so on success it lands in
   // the same place as the plain sign-out above (home, local data cleared). On failure nothing
   // local is touched: still signed in here, and say so rather than leaving a half-signed-out app.
@@ -90,19 +92,19 @@ export default function Settings() {
         <Row icon="rocket" iconTint="var(--indigo)" title={t('Self-host openGym')} subtitle={t('Passkey sign-in, sync across your devices, your own data.')} accessory="chevron"
           onClick={() => window.open(REPO, '_blank', 'noopener')} />
       </> : user ? <>
-        <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in with passkey — data syncs to this profile.')} />
-        <Row icon="key" iconTint="var(--blue)" title={t('Add another passkey')} subtitle={t('Add this phone or choose another device with the system QR option.')} accessory="chevron" onClick={addPasskeyHere} />
-        <Row icon="shield" iconTint="var(--orange)" title={t('Recovery codes')} subtitle={t('One-time access when none of your passkeys are available.')} accessory="chevron" onClick={recoveryCodesHere} />
+        <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in — data syncs to this profile.')} />
+        <Row icon="lock" iconTint="var(--purple)" title={user.hasPassword ? t('Change password or PIN') : t('Set password or PIN')} subtitle={user.hasPassword ? t('Update the reusable login for this profile.') : t('Keep this profile and sign in without a passkey.')} accessory="chevron" onClick={passwordHere} />
+        {webauthnOK() && <Row icon="key" iconTint="var(--blue)" title={t('Add another passkey')} subtitle={t('Add this phone or choose another device with the system QR option.')} accessory="chevron" onClick={addPasskeyHere} />}
+        {user.hasPasskey && <Row icon="shield" iconTint="var(--orange)" title={t('Recovery codes')} subtitle={t('One-time access when none of your passkeys are available.')} accessory="chevron" onClick={recoveryCodesHere} />}
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
         {config?.social?.enabled && <Row icon="personCircle" iconTint="var(--acc)" title={t('Social and privacy')} subtitle={t('Profile, rankings and sharing defaults')} accessory="chevron" onClick={() => nav('/social')} />}
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
         <Row icon="shield" iconTint="var(--red)" title={t('Sign out everywhere')} subtitle={t('Ends this profile’s sessions on all your devices.')} danger onClick={signOutEverywhere} />
-      </> : webauthnOK() ? <>
-        <Row icon="sparkles" iconTint="var(--acc)" title={t('Create passkey profile')} subtitle={t('Keeps your data safe and separate per person.')} accessory="chevron" onClick={registerHere} />
-        <Row icon="person" iconTint="var(--blue)" title={t('Sign in with passkey')} accessory="chevron" onClick={signInHere} />
-      </> : (
-        <Row icon="lock" iconTint="var(--grey)" title={t('Passkeys not supported in this browser.')} />
-      )}
+      </> : <>
+        <Row icon="sparkles" iconTint="var(--acc)" title={t('Create new profile')} subtitle={t('Choose a passkey or a username with password/PIN.')} accessory="chevron" onClick={registerHere} />
+        <Row icon="person" iconTint="var(--blue)" title={t('Sign in with username')} accessory="chevron" onClick={signInPasswordHere} />
+        {webauthnOK() && <Row icon="key" iconTint="var(--blue)" title={t('Sign in with passkey')} accessory="chevron" onClick={signInHere} />}
+      </>}
     </Section>
     {!user && !DEMO && !MOBILE && <p className="sect-f" style={{ marginTop: -18, marginBottom: 22 }}>{t('Guest mode — data lives only in this browser.')}</p>}
 
@@ -347,30 +349,98 @@ function PushCard({ S, update, toast }) {
   </>
 }
 
-function RegisterInline({ close, setUser, pushState, pullState, toast }) {
-  const nameRef = useRef(null)
+function RegisterInline({ close, setUser, pushState, pullState, toast, inviteOnly }) {
+  const [name, setName] = useState('')
+  const [code, setCode] = useState('')
+  const [method, setMethod] = useState('password')
+  const [secret, setSecret] = useState('')
+  const [confirm, setConfirm] = useState('')
   const go = async () => {
-    const n = (nameRef.current.value || '').trim()
+    const n = name.trim()
     if (!n) { toast(t('Enter a name')); return }
+    if (inviteOnly && !code.trim()) { toast(t('An invite code is required')); return }
+    if (method === 'password' && secret !== confirm) { toast(t('Password/PIN values do not match')); return }
     try {
-      const u = await passkeyRegister(n); setUser(u); close()
+      const u = method === 'password' ? await passwordRegister(n, secret, code.trim()) : await passkeyRegister(n, code.trim())
+      setUser(u); close()
       if (hasData(useStore.getState().S)) { await pushState(); toast(t('Profile created — data moved into it')) }
       else { await pullState(); toast(t('Welcome, {0}', u.name)) }
     } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Registration failed')) }
   }
   return <>
     <h3>{t('Create your profile')}</h3>
-    <div className="muted small" style={{ marginBottom: 14 }}>{t('Pick a name, then confirm with your device.')}</div>
-    <TextField ref={nameRef} placeholder={t('Your name')} maxLength={40} />
-    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
+    <Segmented options={[
+      { value: 'password', label: t('Password or PIN') },
+      ...(webauthnOK() ? [{ value: 'passkey', label: t('Passkey') }] : []),
+    ]} value={method} onChange={setMethod} />
+    <div className="muted small" style={{ margin: '12px 0 14px' }}>{method === 'password'
+      ? t('Use a password of at least 8 characters, or a numeric PIN of 6 to 12 digits.')
+      : t('Pick a name, then confirm with your device.')}</div>
+    <TextField value={name} onChange={e => setName(e.target.value)} placeholder={t('Your name')} maxLength={40} />
+    {method === 'password' && <>
+      <div style={{ height: 10 }} /><TextField type="password" autoComplete="new-password" value={secret} onChange={e => setSecret(e.target.value)} placeholder={t('Password or PIN')} maxLength={128} />
+      <div style={{ height: 10 }} /><TextField type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder={t('Repeat password or PIN')} maxLength={128} />
+      <div className="dim small" style={{ marginTop: 6 }}>{t('A short PIN is easier to guess. Passkeys remain the safer option.')}</div>
+    </>}
+    {inviteOnly && <>
+      <div style={{ height: 10 }} /><TextField value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder={t('Invite code')} maxLength={40} />
+    </>}
+    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
   </>
 }
 
-function AddPasskeySheet({ close, toast }) {
+function PasswordLoginInline({ close, setUser, pullState, toast }) {
+  const [name, setName] = useState('')
+  const [secret, setSecret] = useState('')
+  const go = async () => {
+    if (!name.trim() || !secret) { toast(t('Enter your username and password/PIN')); return }
+    try { const u = await passwordLogin(name.trim(), secret); setUser(u); await pullState(); close(); toast(t('Welcome back, {0}', u.name)) }
+    catch (e) { toast(e.message || t('Sign-in failed')) }
+  }
+  return <>
+    <h3>{t('Sign in with username')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>{t('Use the name and password or PIN chosen when the profile was created.')}</div>
+    <TextField autoComplete="username" value={name} onChange={e => setName(e.target.value)} placeholder={t('Your name')} maxLength={40} />
+    <div style={{ height: 10 }} /><TextField type="password" autoComplete="current-password" value={secret} onChange={e => setSecret(e.target.value)} placeholder={t('Password or PIN')} maxLength={128} onKeyDown={e => { if (e.key === 'Enter') go() }} />
+    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Sign in')}</Button>
+  </>
+}
+
+function PasswordSettingsSheet({ close, toast, user, setUser }) {
+  const [current, setCurrent] = useState('')
+  const [secret, setSecret] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const go = async () => {
+    if (secret !== confirm) { toast(t('Password/PIN values do not match')); return }
+    try {
+      const updated = user.hasPassword
+        ? await passwordChange(current, secret)
+        : await passwordSetWithPasskey(secret)
+      setUser(updated); close(); toast(user.hasPassword ? t('Password/PIN changed') : t('Password/PIN enabled'))
+    } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Could not update password/PIN')) }
+  }
+  return <>
+    <h3>{user.hasPassword ? t('Change password or PIN') : t('Set password or PIN')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>{user.hasPassword
+      ? t('Confirm the current password/PIN, then choose the new one.')
+      : t('Confirm once with your existing passkey, then use the same profile with username and password/PIN.')}</div>
+    {user.hasPassword && <>
+      <TextField type="password" autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} placeholder={t('Current password or PIN')} maxLength={128} />
+      <div style={{ height: 10 }} />
+    </>}
+    <TextField type="password" autoComplete="new-password" value={secret} onChange={e => setSecret(e.target.value)} placeholder={t('New password or PIN')} maxLength={128} />
+    <div style={{ height: 10 }} /><TextField type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder={t('Repeat password or PIN')} maxLength={128} />
+    <div className="dim small" style={{ marginTop: 6 }}>{t('Use at least 8 characters, or a numeric PIN of 6 to 12 digits.')}</div>
+    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Save')}</Button>
+  </>
+}
+
+function AddPasskeySheet({ close, toast, setUser }) {
   const [label, setLabel] = useState('')
   const go = async () => {
     try {
-      const { count } = await passkeyAdd(label.trim() || t('Another device'))
+      const { count, user } = await passkeyAdd(label.trim() || t('Another device'))
+      if (user) setUser(user)
       close(); toast(t('Passkey added — {0} passkeys now protect this profile.', count))
     } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Could not add passkey')) }
   }

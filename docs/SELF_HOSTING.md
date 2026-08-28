@@ -16,7 +16,7 @@ docker compose up -d
 ```
 
 - First start downloads the exercise images/GIFs (~140 MB) once into `app/img` and `app/gif`.
-- Open **http://localhost:8080** and create a profile with a passkey.
+- Open **http://localhost:8080** and create a profile with a passkey or username + password/PIN.
 - Rather build from source than pull prebuilt images? Skip `docker compose pull` and run
   `docker compose up -d --build` instead — no Node needed locally either way.
 
@@ -29,9 +29,15 @@ curl http://localhost:8080/api/health      # {"ok":true,...}
 
 Logs: `docker compose logs -f`. Stop: `docker compose down`.
 
-## 2. Understand the passkey requirement (important)
+## 2. Choose how profiles sign in
 
-openGym signs you in with **passkeys** (WebAuthn). Browsers enforce two rules:
+When creating a profile, openGym offers either:
+
+- **Username + password/PIN:** password must contain 8–128 characters, or a numeric PIN must
+  contain 6–12 digits. The server stores only a salted scrypt hash. This works without WebAuthn,
+  including over a trusted LAN, but a PIN is easier to guess than a passkey.
+- **Passkey (WebAuthn):** the safer option, with no reusable secret to type or expose. Browsers
+  enforce two rules:
 
 1. Passkeys are bound to an exact **hostname** (`RP_ID`).
 2. They only work over **HTTPS** — with one exception: `http://localhost`.
@@ -40,7 +46,8 @@ So `http://localhost:8080` works on the machine running Docker, but **another de
 phone) cannot use `http://<your-LAN-ip>:8080`** — that's neither localhost nor HTTPS, so the
 passkey prompt won't appear. To use openGym from your phone you need a real HTTPS hostname.
 
-(You can still open it over LAN in **guest mode**, which stores data only in that browser.)
+(You can still use username + password/PIN or **guest mode** over a LAN. Guest mode stores data
+only in that browser.)
 
 ## 3. Expose it over HTTPS on your own domain
 
@@ -94,6 +101,11 @@ that passkey and store the eight codes privately. Each code signs in once. After
 new phone, immediately add that phone's own passkey in Settings. Generating a new set invalidates
 the previous set; only keyed hashes, never the plaintext codes, are stored in `db.json`.
 
+To keep an existing passkey profile but also enter by PIN, open **Settings → Set password or PIN**.
+The app confirms the existing passkey once, then adds the reusable login to the same profile and
+UID; no workouts or permissions move. Later changes require the current password/PIN. The passkey
+remains available as a safer fallback.
+
 > Changing `RP_ID` later invalidates existing passkeys (they were bound to the old hostname).
 > Pick your domain before people register.
 
@@ -109,12 +121,12 @@ ADMIN_UIDS=youruserid      # comma-separated; these users get the admin dashboar
 INVITE_ONLY=1              # new profiles need an invite code
 ```
 
-Register your own passkey profile first, then find your id in `./data/db.json` under `users[].id`
+Register your own profile first, then find your id in `./data/db.json` under `users[].id`
 and put it in `ADMIN_UIDS`. You'll get an **Admin dashboard** link in Settings: who's training
 right now, each user's workout history and body weight, the ability to disable an account (signed
 out and locked out everywhere until you re-enable it), and — with `INVITE_ONLY=1` — generating and
 revoking invite codes. Existing accounts keep working when you switch invite-only on. Admin access
-is gated by your passkey and enforced server-side, so it needs no separate login.
+is gated by the authenticated session and enforced server-side, so it needs no separate login.
 
 Prefer to keep the whole thing off the open internet? A VPN or an auth proxy (Authelia, Cloudflare
 Access…) in front still works, and composes with the above.
@@ -255,6 +267,7 @@ act on it.
 | No passkey prompt on my phone | You're on `http://` or an IP, not HTTPS. Set up a domain (section 3). |
 | The phone cannot find the passkey created on my computer | That passkey was not synced to the phone. Use a recovery code, then add the phone under **Settings → Add another passkey**, or add it from the computer using the system QR/another-device option. |
 | I lost every passkey | Use one of the one-time recovery codes created in Settings. Without a passkey or an unused recovery code, the instance administrator must perform a manual account recovery from the server. |
+| I prefer not to use passkeys | Create the profile with **Password or PIN**, then use **Sign in with username**. A password of at least 8 characters is safer than a short PIN. |
 | "verification failed" on login | `RP_ID`/`ORIGIN` don't match the URL in the address bar. Make them exact, restart. |
 | Media didn't download | `docker compose logs media`. Re-run `docker compose up -d`, or run `./scripts/fetch-media.sh`. |
 | Port 8080 already used | Set `WEB_PORT=9090` in `.env` (and update `ORIGIN` for local testing). |

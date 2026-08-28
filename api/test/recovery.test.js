@@ -66,6 +66,12 @@ test('a recovery code signs in once and the recovered session can add another pa
   assert.equal(Buffer.from(payload.options.user.id, 'base64url').toString(), 'owner_uid');
   assert.equal(payload.options.excludeCredentials[0].id, 'Y3JlZDE');
 
+  const passwordOptions = await fetch(base + '/api/password/options', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: '{}' });
+  assert.equal(passwordOptions.status, 200);
+  const passwordPayload = await passwordOptions.json();
+  assert.equal(passwordPayload.options.userVerification, 'required');
+  assert.equal(passwordPayload.options.allowCredentials[0].id, 'Y3JlZDE');
+
   const reused = await fetch(base + '/api/recovery/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
   assert.equal(reused.status, 401);
 });

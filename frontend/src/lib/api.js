@@ -73,3 +73,25 @@ export async function regenerateRecoveryCodes() {
 export async function recoveryLogin(code) {
   return api('/api/recovery/login', { method: 'POST', body: JSON.stringify({ code }) })
 }
+
+export async function passwordRegister(name, secret, code) {
+  const res = await api('/api/password/register', { method: 'POST', body: JSON.stringify({ name, secret, code: code || '' }) })
+  return res.user
+}
+
+export async function passwordLogin(name, secret) {
+  const res = await api('/api/password/login', { method: 'POST', body: JSON.stringify({ name, secret }) })
+  return res.user
+}
+
+export async function passwordSetWithPasskey(secret) {
+  const { cid, options } = await api('/api/password/options', { method: 'POST', body: '{}' })
+  const cred = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
+  const res = await api('/api/password/set', { method: 'POST', body: JSON.stringify({ cid, secret, credential: credToJSON(cred) }) })
+  return res.user
+}
+
+export async function passwordChange(currentSecret, newSecret) {
+  const res = await api('/api/password/change', { method: 'POST', body: JSON.stringify({ currentSecret, newSecret }) })
+  return res.user
+}

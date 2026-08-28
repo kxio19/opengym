@@ -7,7 +7,7 @@
 **A self-hosted gym & body-weight tracker you actually own.**
 
 Plan your week, run guided workouts, track every set and your body weight over time —
-on your phone, synced across devices, behind your own passkey login.
+on your phone, synced across devices, behind your own passkey or password/PIN login.
 No account on someone else's server, no subscription, no ads. Just `docker compose up`.
 
 <br>
@@ -92,7 +92,7 @@ as a home-screen app, passkey sign-in, offline support, sync across your phone a
 - 🔔 **Push notifications** — rest-timer alerts even with the app closed, plus an optional reminder on days you have a workout planned but haven't logged one. Opt in per profile; keys are generated on first run, nothing to configure
 - 🤖 **AI Coach** (optional) — an AI that *designs* your plan and adjusts it from what you actually log. A short intake produces a complete weekly plan you can refine in plain language; on demand or on a schedule it reads your stalls, effort ratings, adherence and body-weight trend and proposes **discrete, explained changes** you accept one by one. Choose the official Claude Agent SDK or the bundled OpenAI Codex CLI with ChatGPT device-code sign-in; it is off until the instance owner enables it, needs each profile's separate consent, and never changes anything without your approval — every change-set is snapshotted and revertible. The progression engine still owns your session-to-session weights. **[Full guide →](docs/AI_COACH.md)**
 - 👥 **Private Social** (optional) — opt-in workout feed, kudos, plain-text comments, weekly category podiums and an overall normalized leaderboard, plus voluntary challenges. Sharing fields are controlled per profile and per workout; rankings have separate consent, and imported or pre-consent history is never eligible
-- 🔑 **Passkeys, not passwords** — Face ID / Touch ID / fingerprint login; attach several devices to one profile and keep one-time recovery codes for when none of its passkeys is available
+- 🔑 **Your choice of login** — use passkeys, or create a profile with a unique username plus an 8+ character password or 6–12 digit PIN. Passkey profiles can attach several devices and keep one-time recovery codes
 - 🛠️ **Admin dashboard** (optional) — for whoever runs the instance: who's training right now, per-user history, disable accounts, and invite-only signup. Off by default, so a fresh instance stays open with no admin
 - 🎨 **Designed, not assembled** — light/dark themes and 8 accent colors saved to your profile, over a hand-drawn icon set instead of emoji, so it looks the same on every phone
 - 🌍 **12 languages** — the core tracker is fully translated (EN, DE, ES, FR, IT, PT, PL, TR, RU, ZH, KO, HI); Private Social is translated in Spanish and uses English fallback strings elsewhere; exercise instructions are localized in 10 languages
@@ -154,10 +154,11 @@ mobile app is the install-and-done flavor.
 
 ## Your data
 
-Lives in `./data` on your host: `db.json` (profiles + public passkeys), `state-<user>.json`
+Lives in `./data` on your host: `db.json` (profiles, public passkeys and salted password/PIN hashes), `state-<user>.json`
 (each user's plan, workouts, body weight, settings), and `secret` (the session-cookie key).
 **Back up `./data` and you've backed up everything.** Passkey private keys never touch the
-server — they stay in your phone's secure hardware / your password manager.
+server — they stay in your phone's secure hardware / your password manager. Passwords and PINs
+are processed with scrypt, a per-profile random salt and the instance secret; plaintext is never stored.
 
 ## Configuration
 
