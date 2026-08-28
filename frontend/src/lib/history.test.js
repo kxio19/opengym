@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, exLine, workoutVolume, effortOf, stepEffort, capEffort } from './history.js'
+import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, exLine, workoutVolume, effortOf, stepEffort, capEffort, planStreak } from './history.js'
 import { EXDB } from './exercises.js'
+import { isoOf } from './format.js'
 
 // Real ids out of the shipped catalogue, so the body-part fallback is exercised for real.
 const CARDIO = EXDB.find(e => e.bp === 'cardio').id
@@ -317,5 +318,50 @@ describe('workoutVolume', () => {
       { id: CARDIO, sets: [{ min: 20, speed: 9, done: true }] }
     ] }
     expect(workoutVolume(w)).toBe(600)
+  })
+})
+
+describe('planStreak', () => {
+  const daysAgo = n => { const d = new Date(); d.setDate(d.getDate() - n); return isoOf(d) }
+  const today = () => isoOf(new Date())
+
+  it('is 0 before any plan exists, no matter what the workout log says', () => {
+    expect(planStreak({ routines: [], workouts: [{ d: today() }], week: {}, dayPlan: {} })).toBe(0)
+  })
+
+  it('counts a rest day exactly like a trained one, and stops at the first missed training day', () => {
+    const routines = [{ id: 'r1' }]
+    const workouts = [{ d: daysAgo(1) }, { d: daysAgo(2) }]
+    const dayPlan = {
+      [daysAgo(1)]: 'r1',   // required, trained — counts
+      [daysAgo(2)]: 'r1',   // required, trained — counts
+      [daysAgo(3)]: 'rest', // rest by the plan — counts without being trained
+      [daysAgo(4)]: 'r1'    // required, never trained — breaks the count here
+    }
+    // today has no override and an empty S.week, so it defaults to a rest day and counts too
+    expect(planStreak({ routines, workouts, week: {}, dayPlan })).toBe(4)
+  })
+
+  it('an unfinished training day today does not erase what came before it', () => {
+    const routines = [{ id: 'r1' }]
+    const workouts = [{ d: daysAgo(1) }]
+    const dayPlan = {
+      [today()]: 'r1',      // required today, not trained yet — does not count, does not break
+      [daysAgo(1)]: 'r1',   // required, trained — counts
+      [daysAgo(2)]: 'r1'    // required, never trained — breaks the count here
+    }
+    expect(planStreak({ routines, workouts, week: {}, dayPlan })).toBe(1)
+  })
+
+  it('a session moved to another day with the existing reschedule override keeps the streak', () => {
+    const routines = [{ id: 'r1' }]
+    // The weekday default says day-1 trains r1; it was moved to day-2 via the day-plan override
+    // the app already uses for "reschedule" (dayOverrideSheet) — day-1 becomes rest, day-2 takes
+    // the session, and the trained day still counts.
+    const wd1 = new Date(daysAgo(1) + 'T12:00:00').getDay()
+    const week = { [wd1]: 'r1' }
+    const dayPlan = { [daysAgo(1)]: 'rest', [daysAgo(2)]: 'r1' }
+    const workouts = [{ d: daysAgo(2) }]
+    expect(planStreak({ routines, workouts, week, dayPlan })).toBeGreaterThanOrEqual(3)
   })
 })

@@ -1,5 +1,5 @@
 // Pure helpers over the state object S (ported 1:1 from the vanilla app).
-import { todayISO, isoOf, weekKey, fmtNum } from './format.js'
+import { todayISO, isoOf, fmtNum } from './format.js'
 import { isCardio } from './exercises.js'
 
 // How an exercise is logged (issue #16). This used to be derived from the body part alone,
@@ -194,16 +194,30 @@ export function supersetUnits(items) {
 }
 export function unitOf(units, idx) { return units.find(u => u.includes(idx)) || [idx] }
 
-export function streakWeeks(S) {
-  if (!S.workouts.length) return 0
-  const weeks = new Set(S.workouts.map(w => weekKey(w.d)))
-  let streak = 0
+// Consecutive days the plan was kept — a rest day counts exactly like a trained one, because
+// the plan (via S.week / S.dayPlan overrides, the same source effectiveRoutineId already reads
+// for the week strip) decided that day needed no session. Only a day the plan called for
+// training and got none breaks the count.
+//
+// Today is walked separately from the backward count: an incomplete training day today never
+// resets what came before it (the day isn't over yet), but a completed or rest today adds
+// immediately, so finishing a workout bumps the flame right away instead of waiting for
+// tomorrow.
+//
+// Reading the plan through S.week/S.dayPlan means the count is retroactive: editing the weekly
+// schedule reinterprets past days under the new schedule, because no version history of past
+// schedules is kept. Streak-shifting either way from a schedule edit is the accepted trade-off.
+export function planStreak(S) {
+  if (!S.routines.length) return 0   // nothing to keep a streak against before the first plan
+  const doneDays = new Set(S.workouts.map(w => w.d))
+  const compliant = iso => effectiveRoutineId(S, iso) === null || doneDays.has(iso)
+  let streak = compliant(todayISO()) ? 1 : 0
   const cur = new Date()
-  for (let i = 0; i < 520; i++) {
-    const wk = weekKey(isoOf(cur))
-    if (weeks.has(wk)) streak++
-    else if (i > 0) break
-    cur.setDate(cur.getDate() - 7)
+  cur.setDate(cur.getDate() - 1)
+  for (let i = 0; i < 3650; i++) {   // 10-year safety valve, not a product limit
+    if (!compliant(isoOf(cur))) break
+    streak++
+    cur.setDate(cur.getDate() - 1)
   }
   return streak
 }

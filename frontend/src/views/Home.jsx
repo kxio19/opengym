@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
-import { effectiveRoutine, effectiveRoutineId, streakWeeks, lastBW, setsDoneActive } from '../lib/history.js'
-import { fmtNum, fmtDate, todayISO, isoOf, weekKey, DAYS } from '../lib/format.js'
+import { effectiveRoutine, effectiveRoutineId, planStreak, lastBW, setsDoneActive } from '../lib/history.js'
+import { fmtNum, fmtDate, todayISO, isoOf, DAYS } from '../lib/format.js'
 import { t, dateLocale } from '../lib/i18n.js'
 import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, loadStarterPlan, bwDeltaColor } from '../sheets.jsx'
-import LineChart from '../components/LineChart.jsx'
+import PostCard from '../components/PostCard.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf } from '../lib/glyphs.js'
@@ -13,31 +13,55 @@ import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { useCoachStatus } from '../lib/coach-api.js'
 import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
-import { socialMe, socialFeed, socialRankings } from '../lib/social-api.js'
+import { socialFeed, toggleKudos } from '../lib/social-api.js'
+import { useUI } from '../store/useUI.js'
 
-function SocialPreview({ nav }) {
-  const config = useStore(s => s.config)
-  const user = useStore(s => s.user)
-  const [data, setData] = useState(null)
+const FEED_PAGE = 15
+
+// The feed IS Home once you're past the week card — an infinite list of the group's posts,
+// paginated by the feed endpoint's completedAt cursor. GET /api/social/feed always returns
+// `next` as the oldest post *of the page just returned*, not "the true end of everything", so
+// the only reliable stop signal is a page shorter than what was asked for (including empty).
+function Feed() {
+  const toast = useUI(s => s.toast)
+  const [posts, setPosts] = useState(null)
+  const [cursor, setCursor] = useState('')
+  const [hasMore, setHasMore] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const sentinel = useRef(null)
+
+  const loadMore = async (before = '') => {
+    if (loading) return
+    setLoading(true)
+    try {
+      const { posts: page } = await socialFeed(FEED_PAGE, before)
+      setPosts(prev => before ? [...(prev || []), ...page] : page)
+      setCursor(page.at(-1)?.completedAt || '')
+      setHasMore(page.length === FEED_PAGE)
+    } catch (e) { toast(e.message) } finally { setLoading(false) }
+  }
+
+  useEffect(() => { loadMore() }, [])
+
   useEffect(() => {
-    if (!config?.social?.enabled) return
-    let live = true
-    socialMe().then(async ({ profile }) => {
-      if (!live) return
-      if (!profile.enabled) return setData({ enabled: false })
-      const [feed, rankings] = await Promise.all([socialFeed(3), socialRankings()])
-      if (live) setData({ enabled: true, posts: feed.posts, podium: rankings.podium })
-    }).catch(() => {})
-    return () => { live = false }
-  }, [config?.social?.enabled])
-  if (!user || !config?.social?.enabled || !data) return null
-  if (!data.enabled) return <div className="card social-preview tappable" onClick={() => nav('/social')}><div className="row between"><div className="row" style={{ gap: 9 }}><span className="lrow-i"><Icon name="personCircle" /></span><div><h2>{t('Social')}</h2><div className="small muted">{t('Share workouts and compete with your training group — only if you opt in.')}</div></div></div><Icon name="chevronRight" className="chev" /></div></div>
-  return <div className="card social-preview tappable" onClick={() => nav('/social')}>
-    <div className="row between"><h2>{t('Social')}</h2><Icon name="chevronRight" className="chev" /></div>
-    {!!data.podium?.length && <div className="home-podium">{data.podium.map((p, i) => <span key={p.userId}>{['🥇', '🥈', '🥉'][i]} {p.name} <b>{p.score}</b></span>)}</div>}
-    {data.posts?.map(p => <div className="social-mini" key={p.id}><b>{p.author}</b><span>{p.routine} · {p.durationMinutes} min</span></div>)}
-    {!data.posts?.length && <div className="small muted">{t('No shared workouts yet.')}</div>}
-  </div>
+    if (!hasMore || !sentinel.current) return
+    const io = new IntersectionObserver(entries => { if (entries[0].isIntersecting) loadMore(cursor) }, { rootMargin: '600px' })
+    io.observe(sentinel.current)
+    return () => io.disconnect()
+  }, [cursor, hasMore, loading])
+
+  const kudos = async post => {
+    setPosts(prev => prev.map(p => p.id === post.id ? { ...p, kudosByMe: !p.kudosByMe, kudos: (p.kudos || 0) + (p.kudosByMe ? -1 : 1) } : p))
+    try { await toggleKudos(post.id, !post.kudosByMe) } catch (e) { toast(e.message) }
+  }
+
+  if (posts === null) return null   // first page still loading — nothing to flash before it lands
+  if (!posts.length) return <div className="empty"><div className="ico"><Icon name="personCircle" /></div>{t('No shared workouts yet — finish a workout to be the first.')}</div>
+  return <>
+    {posts.map(post => <PostCard key={post.id} post={post} onKudos={kudos} />)}
+    <div ref={sentinel} style={{ height: 1 }} />
+    {loading && <div className="dim small" style={{ textAlign: 'center', padding: '10px 0' }}>{t('Loading…')}</div>}
+  </>
 }
 
 // A job in flight or a proposal waiting is the only reason the Coach interrupts Home. When it
@@ -65,7 +89,7 @@ function CoachCard({ nav }) {
   </div>
 }
 
-// Home = what to do now + a quick glance. Deep charts & history live in Stats.
+// Home = what to do now + a quick glance + the group's feed. Deep charts & history live in Stats.
 export default function Home() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
@@ -80,6 +104,7 @@ export default function Home() {
   const bw = lastBW(S)
   const prevBW = S.bodyweight.length > 1 ? S.bodyweight[S.bodyweight.length - 2] : null
   const delta = bw && prevBW ? bw.w - prevBW.w : null
+  const streak = planStreak(S)
 
   const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7)
   const doneDays = new Set(S.workouts.map(w => w.d))
@@ -95,17 +120,18 @@ export default function Home() {
   const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6)
   const wkLabel = weekOffset === 0 ? t('This week') : `${monday.getDate()} ${monday.toLocaleDateString(dateLocale(), { month: 'short' })} – ${sunday.getDate()} ${sunday.toLocaleDateString(dateLocale(), { month: 'short' })}`
 
-  const wThisWeek = S.workouts.filter(w => weekKey(w.d) === weekKey(todayISO())).length
-  const plannedPerWeek = Object.keys(S.week).filter(k => S.week[k]).length
-  const bwPoints = S.bodyweight.slice(-30).map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
-
   // today's session shown right under the week strip
   const onToday = () => { if (S.active) nav('/workout'); else if (routine) startFlow(routine.id); else dayOverrideSheet(todayISO()) }
 
   return <div className="narrow">
     <div className="hdr">
       <div><h1>{user ? t('Hi {0}', user.name) : 'openGym'}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
-      <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
+      <div className="row" style={{ gap: 6 }}>
+        {!!streak && <button className="iconbtn streak-btn" onClick={() => calendarSheet()} aria-label={t('{0}-day streak', streak)}>
+          <Icon name="flame" style={{ color: 'var(--orange)' }} /><span>{streak}</span>
+        </button>}
+        <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
+      </div>
     </div>
 
     <div className="card">
@@ -129,11 +155,20 @@ export default function Home() {
           : routine ? <span className="tag acc">{t('Start')}</span>
           : <Icon name="plus" className="chev" />}
       </div>
+      {/* Full history and the trend chart live in Stats now — this is only ever a glance + a
+          one-tap log, so the week card doesn't have to compete with the feed for space. */}
+      <div className="week-weight-row" onClick={() => bwSheet()}>
+        <Icon name="scale" style={{ color: 'var(--label-2)' }} />
+        {bw ? <>
+          <span>{fmtNum(bw.w)} {S.unit}</span>
+          {!!delta && <span className="small row" style={{ gap: 2, fontWeight: 500, color: bwDeltaColor(delta, bw.w) }}>
+            <Icon name={delta > 0 ? 'arrowUp' : 'arrowDown'} style={{ fontSize: 11 }} />{fmtNum(Math.abs(delta))}
+          </span>}
+        </> : <span className="muted">{t('Log your weight')}</span>}
+        <span className="dim">{bw ? fmtDate(bw.d, true) : ''}</span>
+        <Icon name="plus" className="chev" />
+      </div>
     </div>
-
-    {coachOn && <CoachCard nav={nav} />}
-
-    <SocialPreview nav={nav} />
 
     {!S.routines.length && !S.active && (
       <div className="card">
@@ -151,47 +186,8 @@ export default function Home() {
       </div>
     )}
 
-    <div className="card">
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <h2 style={{ margin: 0 }}>{t('Body weight')}</h2>
-        <div className="row" style={{ gap: 8 }}>
-          <Button size="sm" icon="target" style={S.targetW ? { color: 'var(--yellow)' } : undefined} onClick={goalSheet}>{S.targetW ? fmtNum(S.targetW) : t('Goal')}</Button>
-          <Button size="sm" icon="plus" onClick={() => bwSheet()}>{t('Log')}</Button>
-        </div>
-      </div>
-      {bw ? <>
-        <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-          <div className="big">{fmtNum(bw.w)} <span className="muted" style={{ fontSize: '1rem' }}>{S.unit}</span></div>
-          {/* only when it actually moved — an unchanged weight used to read as "− 0" */}
-          {!!delta && (
-            <span className="small row" style={{ gap: 2, fontWeight: 500, color: bwDeltaColor(delta, bw.w) }}>
-              <Icon name={delta > 0 ? 'arrowUp' : 'arrowDown'} style={{ fontSize: 12 }} />
-              {fmtNum(Math.abs(delta))}
-            </span>
-          )}
-          <span className="dim small" style={{ marginLeft: 'auto' }}>{fmtDate(bw.d, true)}</span>
-        </div>
-        {S.targetW && (
-          <div className="small row" style={{ color: 'var(--yellow)', marginTop: 4, gap: 5 }}>
-            <Icon name="target" style={{ fontSize: 13 }} />
-            <span>{t('Goal')} {fmtNum(S.targetW)} {S.unit} · {Math.abs(S.targetW - bw.w) < 0.05 ? t('reached!') : t(S.targetW > bw.w ? '{0} to gain' : '{0} to lose', fmtNum(Math.abs(S.targetW - bw.w)) + ' ' + S.unit)}</span>
-          </div>
-        )}
-        <div className="chart" style={{ marginTop: 8 }}><LineChart points={bwPoints} h={130} unit={S.unit} goal={S.targetW} /></div>
-      </> : <div className="muted small">{t("No entries yet — log your weight to start the curve. It's also asked before every workout.")}</div>}
-    </div>
+    {coachOn && <CoachCard nav={nav} />}
 
-    <div className="card tappable" style={{ cursor: 'pointer' }} onClick={() => calendarSheet()}>
-      <div className="row between">
-        <div>
-          <div className="row" style={{ gap: 7, fontSize: 22, fontWeight: 600, letterSpacing: '-.021em' }}>
-            <Icon name="flame" style={{ color: 'var(--orange)' }} />
-            {t('{0} week streak', streakWeeks(S))}
-          </div>
-          <div className="muted small" style={{ marginTop: 2 }}>{wThisWeek}{plannedPerWeek ? ' / ' + plannedPerWeek : ''} {t('this week')} · {t(S.workouts.length === 1 ? '{0} workout total' : '{0} workouts total', S.workouts.length)}</div>
-        </div>
-        <Icon name="calendar" className="chev" style={{ fontSize: 20 }} />
-      </div>
-    </div>
+    {config?.social?.enabled && <Feed />}
   </div>
 }
