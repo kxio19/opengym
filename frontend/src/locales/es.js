@@ -818,4 +818,12 @@ export default {
   'Current password or PIN': 'Contraseña o PIN actuales',
   'New password or PIN': 'Nueva contraseña o PIN',
   'Use at least 8 characters, or a numeric PIN of 6 to 12 digits.': 'Usa al menos 8 caracteres o un PIN numérico de entre 6 y 12 cifras.',
+  'One-time access when your usual way in is unavailable.': 'Acceso de un solo uso cuando no puedas entrar como sueles.',
+  'Generating new codes invalidates any old ones. Confirm with your password or PIN, then store the new codes somewhere private.': 'Generar códigos nuevos anula los anteriores. Confirma con tu contraseña o PIN y guarda los nuevos en un sitio privado.',
+  'Enter your password or PIN': 'Introduce tu contraseña o PIN',
+  'Choose a new password or PIN': 'Elige una contraseña o PIN nuevos',
+  'An administrator set a temporary one so you could get back in. Replace it now — until you do, they know it too.': 'Un administrador puso una temporal para que pudieras volver a entrar. Cámbiala ahora: hasta que lo hagas, él también la conoce.',
+  'This account has only one way in': 'Esta cuenta tiene una sola forma de entrar',
+  'If you lose this device you lose the account. Generate recovery codes, or set a password/PIN, so there is a second way back.': 'Si pierdes este dispositivo pierdes la cuenta. Genera códigos de recuperación o pon una contraseña/PIN para tener una segunda vía.',
+  'An administrator restored access to this profile on {0}.': 'Un administrador restableció el acceso a este perfil el {0}.',
 }

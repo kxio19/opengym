@@ -7,7 +7,7 @@ import { fmtDate, fmtNum, fmtVol, fmtDur } from '../lib/format.js'
 import { workoutVolume, setsDone } from '../lib/history.js'
 import { confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
-import { Button } from '../components/ui.jsx'
+import { Button, TextField } from '../components/ui.jsx'
 import AdminCoach from './AdminCoach.jsx'
 
 // Admin-only operator dashboard (owner passkey + admin flag; guarded again server-side).
@@ -53,6 +53,7 @@ function UserDetail({ id, onChanged, close }) {
       onClick={() => u.disabled ? setDisabled(false)
         : confirmSheet({ title: 'Disable ' + u.name + '?', message: 'They are signed out everywhere and can no longer sync or log in until re-enabled.', confirmText: 'Disable', danger: true, onConfirm: () => setDisabled(true) })}>
       {u.disabled ? 'Enable account' : 'Disable account'}</button>}
+    <AccessCard d={d} reload={() => api('/api/admin/user?id=' + encodeURIComponent(id)).then(setD).catch(e => toast(e.message))} />
     <h4 className="sec">Workout history</h4>
     {d.workouts.length ? <div className="list" style={{ gap: 0 }}>
       {d.workouts.slice(0, 60).map(w => <div key={w.id} className="row between" style={{ padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
@@ -61,6 +62,70 @@ function UserDetail({ id, onChanged, close }) {
         <span className="small muted">{fmtVol(w.vol ?? workoutVolume(w), d.unit)}</span>
       </div>)}
     </div> : <div className="empty small">No workouts logged.</div>}
+  </>
+}
+
+// Account rescue. Someone who loses their only passkey cannot use /api/recovery/regenerate —
+// it asks for the passkey they no longer have — so without this the account is simply gone.
+// Both actions amount to being able to sign in as that person, so both are logged and the log
+// is shown here and in their own Settings screen.
+function AccessCard({ d, reload }) {
+  const toast = useUI(s => s.toast)
+  const [issued, setIssued] = useState(null)   // { kind, value } — shown once, never re-fetchable
+  const [chosen, setChosen] = useState('')
+  const a = d.access || {}
+  const atRisk = !a.hasPassword && !a.recoveryCodesLeft && (a.passkeys || 0) <= 1
+
+  const run = (path, body, kind) => api(path, { method: 'POST', body: JSON.stringify({ id: d.user.id, ...body }) })
+    .then(r => { if (r.code || r.secret) setIssued({ kind, value: r.code || r.secret }); else { toast('Password set'); setIssued(null) }; setChosen(''); reload() })
+    .catch(e => toast(e.message))
+
+  const copy = () => navigator.clipboard?.writeText(issued.value)
+    .then(() => toast('Copied')).catch(() => toast('Could not copy'))
+
+  return <>
+    <h4 className="sec">Access</h4>
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+      <span className="tag">{a.passkeys || 0} passkey{a.passkeys === 1 ? '' : 's'}</span>
+      <span className="tag">{a.hasPassword ? 'password/PIN set' : 'no password'}</span>
+      <span className="tag">{a.recoveryCodesLeft || 0} recovery codes</span>
+      {a.mustChangeSecret && <span className="tag" style={{ color: 'var(--orange)' }}>must change password</span>}
+      {atRisk && <span className="tag" style={{ color: 'var(--red)' }}>one way in</span>}
+    </div>
+
+    {issued ? <div className="card" style={{ borderLeft: '3px solid var(--orange)', marginBottom: 10 }}>
+      <div className="small" style={{ fontWeight: 600, marginBottom: 4 }}>
+        {issued.kind === 'code' ? 'One-time recovery code' : 'Temporary password'}</div>
+      <pre style={{ userSelect: 'all', margin: '6px 0', letterSpacing: '.06em' }}>{issued.value}</pre>
+      <div className="dim" style={{ fontSize: '.72rem', marginBottom: 8 }}>
+        Shown once — the server keeps only a hash. Send it over a channel you trust, and never paste it back into this app.</div>
+      <div className="row" style={{ gap: 8 }}>
+        <Button onClick={copy}>Copy</Button>
+        <Button variant="primary" onClick={() => setIssued(null)}>Done</Button>
+      </div>
+    </div> : <>
+      <Button style={{ marginBottom: 8 }} onClick={() => confirmSheet({
+        title: 'Issue a recovery code?',
+        message: 'Generates one single-use code for ' + d.user.name + '. Codes they already hold keep working. This is logged and shown to them.',
+        confirmText: 'Issue code',
+        onConfirm: () => run('/api/admin/user/recovery-code', {}, 'code')
+      })}>Issue recovery code</Button>
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <TextField value={chosen} onChange={e => setChosen(e.target.value)} placeholder="Password to set (blank = generate)" maxLength={128} />
+        <Button onClick={() => confirmSheet({
+          title: 'Reset password for ' + d.user.name + '?',
+          message: 'They will be asked to choose a new one at their next sign-in. Their sessions are not ended. This is logged and shown to them.',
+          confirmText: 'Reset', danger: true,
+          onConfirm: () => run('/api/admin/user/password-reset', chosen ? { secret: chosen } : {}, 'secret')
+        })}>Reset</Button>
+      </div>
+    </>}
+
+    {!!d.adminActions?.length && <div className="dim" style={{ fontSize: '.72rem', marginTop: 10 }}>
+      {d.adminActions.map((x, i) => <div key={i}>
+        {x.action === 'recovery-code' ? 'Recovery code issued' : 'Password reset'} · {fmtDate(x.ts.slice(0, 10), true)}
+      </div>)}
+    </div>}
   </>
 }
 

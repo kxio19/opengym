@@ -64,7 +64,11 @@ export async function passkeyAdd(label) {
   return api('/api/passkeys/verify', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })
 }
 
-export async function regenerateRecoveryCodes() {
+// A profile with a passkey confirms with it. One that only ever had a password/PIN confirms with
+// that instead — without this path such a profile could never mint the codes that are its only
+// way back if the password is lost.
+export async function regenerateRecoveryCodes(secret) {
+  if (secret !== undefined) return api('/api/recovery/regenerate', { method: 'POST', body: JSON.stringify({ secret }) })
   const { cid, options } = await api('/api/recovery/options', { method: 'POST', body: '{}' })
   const cred = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
   return api('/api/recovery/regenerate', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })

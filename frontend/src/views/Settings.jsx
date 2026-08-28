@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
+import { ACCENTS, todayISO, localTZ, fmtDate } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
 import { webauthnOK, passkeyLogin, passkeyRegister, passkeyAdd, regenerateRecoveryCodes, passwordLogin, passwordRegister, passwordSetWithPasskey, passwordChange, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
@@ -58,7 +58,7 @@ export default function Settings() {
   const registerHere = () => useUI.getState().openSheet(close => <RegisterInline close={close} setUser={setUser} pushState={pushState} pullState={pullState} toast={toast} inviteOnly={!!config?.invite_only} />)
   const signInPasswordHere = () => useUI.getState().openSheet(close => <PasswordLoginInline close={close} setUser={setUser} pullState={pullState} toast={toast} />)
   const addPasskeyHere = () => useUI.getState().openSheet(close => <AddPasskeySheet close={close} toast={toast} setUser={setUser} />)
-  const recoveryCodesHere = () => useUI.getState().openSheet(close => <RecoveryCodesSheet close={close} toast={toast} />)
+  const recoveryCodesHere = () => useUI.getState().openSheet(close => <RecoveryCodesSheet close={close} toast={toast} user={user} />)
   const passwordHere = () => useUI.getState().openSheet(close => <PasswordSettingsSheet close={close} toast={toast} user={user} setUser={setUser} />)
   // Ends the profile's sessions on every device — this one included, so on success it lands in
   // the same place as the plain sign-out above (home, local data cleared). On failure nothing
@@ -95,7 +95,7 @@ export default function Settings() {
         <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in — data syncs to this profile.')} />
         <Row icon="lock" iconTint="var(--purple)" title={user.hasPassword ? t('Change password or PIN') : t('Set password or PIN')} subtitle={user.hasPassword ? t('Update the reusable login for this profile.') : t('Keep this profile and sign in without a passkey.')} accessory="chevron" onClick={passwordHere} />
         {webauthnOK() && <Row icon="key" iconTint="var(--blue)" title={t('Add another passkey')} subtitle={t('Add this phone or choose another device with the system QR option.')} accessory="chevron" onClick={addPasskeyHere} />}
-        {user.hasPasskey && <Row icon="shield" iconTint="var(--orange)" title={t('Recovery codes')} subtitle={t('One-time access when none of your passkeys are available.')} accessory="chevron" onClick={recoveryCodesHere} />}
+        {(user.hasPasskey || user.hasPassword) && <Row icon="shield" iconTint="var(--orange)" title={t('Recovery codes')} subtitle={t('One-time access when your usual way in is unavailable.')} accessory="chevron" onClick={recoveryCodesHere} />}
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
         {config?.social?.enabled && <Row icon="personCircle" iconTint="var(--acc)" title={t('Social and privacy')} subtitle={t('Profile, rankings and sharing defaults')} accessory="chevron" onClick={() => nav('/social')} />}
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
@@ -107,6 +107,27 @@ export default function Settings() {
       </>}
     </Section>
     {!user && !DEMO && !MOBILE && <p className="sect-f" style={{ marginTop: -18, marginBottom: 22 }}>{t('Guest mode — data lives only in this browser.')}</p>}
+
+    {/* An administrator handed this profile a temporary password. Say so plainly and get it
+        replaced: until it is, someone other than the owner knows a way in. */}
+    {user?.mustChangeSecret && <div className="card" style={{ marginBottom: 18, borderLeft: '3px solid var(--red)' }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('Choose a new password or PIN')}</div>
+      <div className="muted small" style={{ marginBottom: 10 }}>{t('An administrator set a temporary one so you could get back in. Replace it now — until you do, they know it too.')}</div>
+      <Button variant="primary" onClick={passwordHere}>{t('Change password or PIN')}</Button>
+    </div>}
+
+    {/* One passkey, no password, no codes: losing this device loses the account. This is exactly
+        how the first invited profile was set up, so it is worth saying out loud. */}
+    {user && !user.mustChangeSecret && !user.hasPassword && !user.recoveryCodesLeft && (user.passkeyCount || 0) <= 1 &&
+      <div className="card" style={{ marginBottom: 18, borderLeft: '3px solid var(--orange)' }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('This account has only one way in')}</div>
+        <div className="muted small" style={{ marginBottom: 10 }}>{t('If you lose this device you lose the account. Generate recovery codes, or set a password/PIN, so there is a second way back.')}</div>
+        <Button variant="primary" onClick={recoveryCodesHere}>{t('Generate recovery codes')}</Button>
+      </div>}
+
+    {/* Rescues are never silent: the person they were used on is told they happened. */}
+    {user?.lastAdminRecovery && !user.mustChangeSecret &&
+      <p className="sect-f" style={{ marginTop: -6, marginBottom: 22 }}>{t('An administrator restored access to this profile on {0}.', fmtDate(String(user.lastAdminRecovery).slice(0, 10)))}</p>}
 
     {/* ---------- general ---------- */}
     <Section title={t('General')} footer={t('Note: switching units only changes the label — logged numbers are not converted.')}>
@@ -452,10 +473,15 @@ function AddPasskeySheet({ close, toast, setUser }) {
   </>
 }
 
-function RecoveryCodesSheet({ close, toast }) {
+function RecoveryCodesSheet({ close, toast, user }) {
   const [codes, setCodes] = useState(null)
+  const [secret, setSecret] = useState('')
+  // A profile with no passkey proves itself with the password/PIN instead — otherwise the one
+  // account shape that most needs recovery codes would be the one that cannot generate them.
+  const bySecret = !user?.hasPasskey
   const generate = async () => {
-    try { const result = await regenerateRecoveryCodes(); setCodes(result.codes) }
+    if (bySecret && !secret) { toast(t('Enter your password or PIN')); return }
+    try { const result = await regenerateRecoveryCodes(bySecret ? secret : undefined); setCodes(result.codes) }
     catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Could not generate recovery codes')) }
   }
   const copy = async () => {
@@ -465,7 +491,13 @@ function RecoveryCodesSheet({ close, toast }) {
   return <>
     <h3>{t('Recovery codes')}</h3>
     {!codes ? <>
-      <div className="muted small" style={{ marginBottom: 14 }}>{t('Generating new codes invalidates any old ones. Confirm with your passkey, then store the new codes somewhere private.')}</div>
+      <div className="muted small" style={{ marginBottom: 14 }}>{bySecret
+        ? t('Generating new codes invalidates any old ones. Confirm with your password or PIN, then store the new codes somewhere private.')
+        : t('Generating new codes invalidates any old ones. Confirm with your passkey, then store the new codes somewhere private.')}</div>
+      {bySecret && <>
+        <TextField type="password" autoComplete="current-password" value={secret} onChange={e => setSecret(e.target.value)} placeholder={t('Password or PIN')} maxLength={128} onKeyDown={e => { if (e.key === 'Enter') generate() }} />
+        <div style={{ height: 12 }} />
+      </>}
       <Button variant="primary" onClick={generate}>{t('Generate recovery codes')}</Button>
     </> : <>
       <div className="small" style={{ marginBottom: 12 }}>{t('Save these now. They are shown only once and each code works once.')}</div>

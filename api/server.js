@@ -52,18 +52,48 @@ if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, crypto.randomBytes(
 const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
 const DUMMY_PASSWORD_HASH = await hashLoginSecret('invalid-login-secret', SECRET);
 
+// A temporary password an admin reads out over the phone or pastes into a chat, so no glyph pair
+// anyone confuses (0/O, 1/l/I) is in the alphabet. Twelve characters from 32 is 60 bits, which is
+// plenty for a secret whose whole purpose is to be replaced at the next sign-in.
+function generateTempSecret() {
+  const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(12);
+  let out = '';
+  for (let i = 0; i < 12; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
 const dbFile = path.join(DATA, 'db.json');
 let db = { users: [], creds: [], subs: [], invites: [] };
 try { db = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
 db.subs = db.subs || [];
 db.invites = db.invites || [];
+db.adminActions = db.adminActions || [];
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
+
+// An admin who can hand someone a way back into their account can also sign in as them. That is
+// a real power, so it is written down — and publicUser hands the timestamp back to the person it
+// was used on, so a rescue is never silent. The secret itself is never part of the record.
+function recordAdminAction(adminId, targetId, action) {
+  db.adminActions.push({ ts: new Date().toISOString(), adminId, targetId, action });
+  if (db.adminActions.length > 500) db.adminActions.splice(0, db.adminActions.length - 500);
+}
+function lastAdminRecovery(uid) {
+  for (let i = db.adminActions.length - 1; i >= 0; i--) if (db.adminActions[i].targetId === uid) return db.adminActions[i].ts;
+  return null;
+}
+
 const publicUser = user => ({
   id: user.id,
   name: user.name,
   admin: isAdmin(user),
   hasPasskey: db.creds.some(c => c.userId === user.id),
-  hasPassword: !!user.passwordHash
+  hasPassword: !!user.passwordHash,
+  // What the app needs to tell someone their account has no way back if this device dies.
+  passkeyCount: db.creds.filter(c => c.userId === user.id).length,
+  recoveryCodesLeft: (user.recoveryCodes || []).length,
+  mustChangeSecret: !!user.mustChangeSecret,
+  lastAdminRecovery: lastAdminRecovery(user.id)
 });
 function saveDb() { atomicWrite(dbFile, JSON.stringify(db, null, 2)); }
 function atomicWrite(file, content) {
@@ -410,6 +440,7 @@ const routes = {
     if (!verification.verified) return json(res, 400, { error: 'not verified' });
     cred.counter = verification.authenticationInfo.newCounter;
     user.passwordHash = await hashLoginSecret(secret, SECRET);
+    delete user.mustChangeSecret;
     saveDb();
     json(res, 200, { user: publicUser(user) });
   },
@@ -424,6 +455,8 @@ const routes = {
     try { secret = validateLoginSecret(body.newSecret); }
     catch (error) { return json(res, 400, { error: error.message }); }
     user.passwordHash = await hashLoginSecret(secret, SECRET);
+    // Whatever the admin handed over is now gone: this is the user's own secret again.
+    delete user.mustChangeSecret;
     saveDb();
     json(res, 200, { user: publicUser(user) });
   },
@@ -594,27 +627,35 @@ const routes = {
     json(res, 200, { cid, options });
   },
 
+  // Two ways to prove the profile is yours before minting new codes: a passkey, or the current
+  // password/PIN. The second path exists because a profile that never registered a passkey could
+  // otherwise never generate the codes that are its only way back if the password is lost.
   'POST /api/recovery/regenerate': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     const body = await readBody(req);
-    const c = takeChallenge(body.cid);
-    if (!c || c.recoveryUserId !== user.id) return json(res, 400, { error: 'challenge expired — try again' });
-    const cred = db.creds.find(x => x.id === body.credential?.id && x.userId === user.id);
-    if (!cred) return json(res, 400, { error: 'use a passkey belonging to this profile' });
-    let verification;
-    try {
-      verification = await verifyAuthenticationResponse({
-        response: body.credential,
-        expectedChallenge: c.challenge,
-        expectedOrigin: ORIGIN,
-        expectedRPID: RP_ID,
-        requireUserVerification: true,
-        credential: { id: cred.id, publicKey: b64uToBuf(cred.publicKey), counter: cred.counter, transports: cred.transports }
-      });
-    } catch (e) { return json(res, 400, { error: 'verification failed: ' + e.message }); }
-    if (!verification.verified) return json(res, 400, { error: 'not verified' });
-    cred.counter = verification.authenticationInfo.newCounter;
+    if (body.secret !== undefined) {
+      const valid = await verifyLoginSecret(body.secret, user.passwordHash || DUMMY_PASSWORD_HASH, SECRET);
+      if (!user.passwordHash || !valid) return json(res, 401, { error: 'current password/PIN is incorrect' });
+    } else {
+      const c = takeChallenge(body.cid);
+      if (!c || c.recoveryUserId !== user.id) return json(res, 400, { error: 'challenge expired — try again' });
+      const cred = db.creds.find(x => x.id === body.credential?.id && x.userId === user.id);
+      if (!cred) return json(res, 400, { error: 'use a passkey belonging to this profile' });
+      let verification;
+      try {
+        verification = await verifyAuthenticationResponse({
+          response: body.credential,
+          expectedChallenge: c.challenge,
+          expectedOrigin: ORIGIN,
+          expectedRPID: RP_ID,
+          requireUserVerification: true,
+          credential: { id: cred.id, publicKey: b64uToBuf(cred.publicKey), counter: cred.counter, transports: cred.transports }
+        });
+      } catch (e) { return json(res, 400, { error: 'verification failed: ' + e.message }); }
+      if (!verification.verified) return json(res, 400, { error: 'not verified' });
+      cred.counter = verification.authenticationInfo.newCounter;
+    }
     const codes = createRecoveryCodes();
     const created = new Date().toISOString();
     user.recoveryCodes = codes.map(code => ({ hash: hashRecoveryCode(code, SECRET), created }));
@@ -767,7 +808,16 @@ const routes = {
       lastSync: S._ts || null,
       routines: (S.routines || []).map(r => ({ id: r.id, name: r.name, emoji: r.emoji, count: (r.ex || []).length })),
       bodyweight: S.bodyweight || [],
-      workouts: (S.workouts || []).slice().reverse()   // newest first for display
+      workouts: (S.workouts || []).slice().reverse(),   // newest first for display
+      // How this account can currently be signed into, so the admin can see at a glance whether
+      // it is one lost phone away from being unreachable. Counts only — never a hash.
+      access: {
+        passkeys: db.creds.filter(c => c.userId === u.id).length,
+        hasPassword: !!u.passwordHash,
+        recoveryCodesLeft: (u.recoveryCodes || []).length,
+        mustChangeSecret: !!u.mustChangeSecret
+      },
+      adminActions: db.adminActions.filter(a => a.targetId === u.id).slice(-20).reverse()
     });
   },
 
@@ -781,6 +831,49 @@ const routes = {
     if (u.disabled) presence.delete(u.id);   // drop them off "training now" at once
     saveDb();
     json(res, 200, { ok: true, id: u.id, disabled: u.disabled });
+  },
+
+  // ---- Account rescue ----
+  // Losing the only passkey on a profile with no password and no recovery codes used to mean
+  // losing the account outright: /api/recovery/regenerate needs the passkey you no longer have.
+  // These two give the instance owner a way to hand someone back in. Both are logged, and the log
+  // is shown to the affected user, because being able to do this is also being able to sign in
+  // as them — with Social on, that means posting in their name.
+  'POST /api/admin/user/recovery-code': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const body = await readBody(req);
+    const u = db.users.find(x => x.id === body.id);
+    if (!u) return json(res, 404, { error: 'no such user' });
+    if (u.disabled) return json(res, 400, { error: 'enable the account before issuing a code' });
+    const [code] = createRecoveryCodes(1);
+    // Appended rather than replacing: any codes the user still holds keep working, so a rescue
+    // never quietly invalidates the backup they had all along.
+    u.recoveryCodes = [...(u.recoveryCodes || []), { hash: hashRecoveryCode(code, SECRET), created: new Date().toISOString(), issuedBy: admin.id }];
+    recordAdminAction(admin.id, u.id, 'recovery-code');
+    saveDb();
+    json(res, 200, { code });   // returned once, stored only as an HMAC
+  },
+
+  'POST /api/admin/user/password-reset': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const body = await readBody(req, 4096);
+    const u = db.users.find(x => x.id === body.id);
+    if (!u) return json(res, 404, { error: 'no such user' });
+    if (u.disabled) return json(res, 400, { error: 'enable the account before resetting its password' });
+    let secret, generated = false;
+    if (body.secret === undefined || body.secret === null || body.secret === '') {
+      secret = generateTempSecret(); generated = true;
+    } else {
+      try { secret = validateLoginSecret(body.secret); }
+      catch (error) { return json(res, 400, { error: error.message }); }
+    }
+    u.passwordHash = await hashLoginSecret(secret, SECRET);
+    // The admin knows this one, so the app asks for a replacement at the next sign-in. Sessions
+    // are deliberately left alone: the point is to let someone back in, not to evict them.
+    u.mustChangeSecret = true;
+    recordAdminAction(admin.id, u.id, 'password-reset');
+    saveDb();
+    json(res, 200, { ok: true, ...(generated ? { secret } : {}) });
   },
 
   'GET /api/admin/invites': async (req, res) => {
