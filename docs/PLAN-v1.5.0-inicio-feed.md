@@ -1,18 +1,29 @@
 # v1.5.0 — Inicio al estilo Hevy
 
-Documento vivo del avance. **Se actualiza en el mismo commit que el código que describe**, nunca
-al final del día, para que `git log` y esta lista no puedan contradecirse.
+> [!archived] Cerrado y archivado — 29 ago 2026
+> Esta versión está en producción y verificada de forma independiente (frontend 211/211,
+> API 75/75 en Linux/ARM64 sobre la propia Pi, `npm audit` a cero en ambos paquetes,
+> backup posterior restaurado). Este documento deja de actualizarse como plan vivo; el
+> estado de producción vive ahora en la bóveda — [[OpenGym - MOC]] y
+> [[OpenGym - Roadmap y Estado]]. Se conserva aquí como historial de las decisiones y
+> trampas de diseño de esta versión, siguiendo la regla 5 de este mismo documento.
 
-## Estado — 28 ago 2026
+Documento vivo del avance mientras estuvo en marcha. **Se actualizaba en el mismo commit que
+el código que describe**, nunca al final del día, para que `git log` y esta lista no pudieran
+contradecirse.
 
-    Último commit del plan: 13923e3 (Inicio, tarjeta y detalle); cierre v1.5.0 aún sin commit
-    En curso:  cierre y verificación integral de la candidata 1.5.0
-    Bloqueado: el despliegue de 1.3.3/1.4.0 está a la espera de permiso de Kaio
-    Siguiente: autorización de Kaio para commit, push y despliegue
+## Estado final — 29 ago 2026
 
-Producción está en `1.3.3-ddf83c0`. Publicados y **sin desplegar**: `1456d2e` (rescate de cuentas
-por el administrador) y `badbc75` (traducción del panel de administración). Esta versión se
-desplegará junto con ellos.
+    Último commit: 129ae8d (hotfix móvil, cierra v1.5.1)
+    En curso:  nada — versión cerrada
+    Desplegado: 1.5.1-129ae8d en gym.kaiohub.dev, contenedores sanos, 2 perfiles conservados
+    Pendiente: prueba real con dos cuentas (foto, comentarios, rankings/retos) — ver Roadmap
+
+Cadena de commits de esta versión: `13923e3` (Inicio, tarjeta y detalle) → `5f37627` (cierre
+funcional: fotos, alta obligatoria, traslados) → `6eedba3` (corrección del proxy de fotos
+privadas) → `129ae8d` (hoja de fin de entrenamiento desplazable en móvil, sube la versión a
+1.5.1). Los tres commits anteriores a este plan (`1456d2e`, `badbc75`, `ddf83c0`) se desplegaron
+en el mismo ciclo.
 
 ---
 
@@ -110,7 +121,14 @@ Estado: `[ ]` pendiente · `[~]` en curso · `[x]` hecha (con el commit que la c
 ### Idioma y cierre
 - [x] Traducir las cadenas nuevas en `frontend/src/locales/es.js`
 - [x] La auditoría de `t()` contra `es.js` vuelve a dar cero
-- [x] Subir versión a 1.5.0 y actualizar el README
+- [x] Subir versión a 1.5.0, y a 1.5.1 tras el hotfix móvil; actualizar el README
+
+### Hotfix móvil (post-cierre, commit `129ae8d`)
+- [x] `FinishSummary` pasa de diálogo centrado a hoja inferior desplazable (`kind: center` no
+      tenía `max-height` ni `overflow`; con foto, privacidad y publicación ya no cabía)
+- [x] Foto limitada a `min(220px, 28dvh)` con `object-fit: cover`
+- [x] Botón renombrado a «Publicar entrenamiento», siempre alcanzable con scroll
+- [x] Verificado a 390×844 px con foto real contra una instancia local aislada
 
 ---
 
