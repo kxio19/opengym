@@ -133,6 +133,7 @@ export default {
   'PRs': 'Rekordy',
   'New PR:': 'Nowy rekord:',
   'Nice!': 'Świetnie!',
+  'Publish workout': 'Opublikuj trening',
   'Nothing logged yet': 'Nic nie zapisano',
   'You haven’t checked off any sets. Finish the workout anyway?': 'Nie odhaczyłeś żadnej serii. Mimo to zakończyć trening?',
   'Finish anyway': 'Zakończ mimo to',

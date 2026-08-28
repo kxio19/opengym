@@ -133,6 +133,7 @@ export default {
   'PRs': '纪录',
   'New PR:': '新纪录：',
   'Nice!': '太棒了！',
+  'Publish workout': '发布训练',
   'Nothing logged yet': '还没有记录',
   'You haven’t checked off any sets. Finish the workout anyway?': '你还没有勾选任何组。仍要结束训练吗？',
   'Finish anyway': '仍然结束',

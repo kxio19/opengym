@@ -133,6 +133,7 @@ export default {
   'PRs': 'Rekorlar',
   'New PR:': 'Yeni rekor:',
   'Nice!': 'Süper!',
+  'Publish workout': 'Antrenmanı yayınla',
   'Nothing logged yet': 'Henüz kayıt yok',
   'You haven’t checked off any sets. Finish the workout anyway?': 'Hiç set işaretlemedin. Yine de antrenman bitsin mi?',
   'Finish anyway': 'Yine de bitir',

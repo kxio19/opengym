@@ -881,7 +881,7 @@ export const topWeightSheet = entryIdx => ui().openSheet(close => <TopWeight ent
 
 // Shown when the last exercise's last set is checked — finish, or keep going.
 function WorkoutComplete({ close }) {
-  return <div style={{ textAlign: 'center', padding: '8px 0' }}>
+  return <div className="finish-workout" style={{ textAlign: 'center', padding: '8px 0' }}>
     <div style={{ fontSize: 44, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="checkCircle" /></div>
     <h3 style={{ margin: '8px 0' }}>{t("That's the whole workout!")}</h3>
     <div className="muted small" style={{ marginBottom: 16 }}>{t('Every exercise done — great work. Finish up, or keep going and add another exercise.')}</div>
@@ -985,13 +985,14 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
         <div style={{ height: 8 }} /><TextArea rows={3} maxLength={500} value={social.desc} placeholder={t('Say something about this workout…')} onChange={e => setSocial(v => ({ ...v, desc: e.target.value }))} />
         {photo?.preview && <div className="post-photo-preview"><img src={photo.preview} alt="" /><button className="iconbtn" onClick={() => setPhoto(null)} aria-label={t('Remove photo')}><Icon name="xmark" /></button></div>}
         {!photo && <label className="btn" style={{ marginTop: 8, cursor: 'pointer' }}><Icon name="camera" />{photoBusy ? t('Preparing photo…') : t('Add photo')}<input type="file" accept="image/jpeg,image/png" hidden onChange={choosePhoto} /></label>}
-        {social.askFields && <details open><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={social.fields[key]} disabled={(key === 'exactSets' || key === 'effort') && !social.fields.exerciseNames} onChange={value => setSocial(v => ({ ...v, fields: { ...v.fields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) } }))} /></div>)}</details>}
+        {social.askFields && <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={social.fields[key]} disabled={(key === 'exactSets' || key === 'effort') && !social.fields.exerciseNames} onChange={value => setSocial(v => ({ ...v, fields: { ...v.fields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) } }))} /></div>)}</details>}
         {social.askFields && <div className="social-toggle"><div><b>{t('Use these choices next time')}</b><div className="small muted">{t('You can change them later in Settings.')}</div></div><Switch checked={remember} onChange={setRemember} /></div>}
       </div>}
     </div>}
-    <div style={{ height: 14 }} />
-    {!socialChecked && <div className="small muted" style={{ marginBottom: 8 }}>{t('Loading privacy choices…')}</div>}
-    <Button variant="primary" disabled={!socialChecked || photoBusy} onClick={done}>{t('Nice!')}</Button>
+    <div className="finish-actions">
+      {!socialChecked && <div className="small muted" style={{ marginBottom: 8 }}>{t('Loading privacy choices…')}</div>}
+      <Button variant="primary" disabled={!socialChecked || photoBusy} onClick={done}>{t(social?.publish ? 'Publish workout' : 'Nice!')}</Button>
+    </div>
   </div>
 }
 export function finishWorkout() {
@@ -1037,5 +1038,8 @@ function doFinishWorkout() {
   })
   useUI.getState().stopRest()
   beep(snd(), 880, 0.15); beep(snd(), 1100, 0.15, 0.18); beep(snd(), 1320, 0.3, 0.36)
-  ui().openSheet(close => <FinishSummary w={w} prs={prs} e1prs={e1prs} close={close} />, { kind: 'center', locked: true })
+  // The finish flow can contain a body map, a social form, privacy controls and a photo. It is
+  // therefore a scrollable bottom sheet, not a compact centred dialog: the latter has no scroll
+  // viewport and grows off both edges of a phone as soon as a photo is selected.
+  ui().openSheet(close => <FinishSummary w={w} prs={prs} e1prs={e1prs} close={close} />, { locked: true })
 }

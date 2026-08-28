@@ -133,6 +133,7 @@ export default {
   'PRs': '신기록',
   'New PR:': '신기록:',
   'Nice!': '좋아요!',
+  'Publish workout': '운동 게시',
   'Nothing logged yet': '아직 기록 없음',
   'You haven’t checked off any sets. Finish the workout anyway?': '체크한 세트가 없어요. 그래도 운동을 마칠까요?',
   'Finish anyway': '그래도 마치기',
