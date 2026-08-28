@@ -6,7 +6,7 @@ import { t } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { useState, useRef, useEffect } from 'react'
 import Icon from '../components/Icon.jsx'
-import { Button, Segmented } from '../components/ui.jsx'
+import { Button, Segmented, Switch } from '../components/ui.jsx'
 
 function RegisterSheet({ close }) {
   const { setUser, pushState, pullState } = useStore()
@@ -15,6 +15,7 @@ function RegisterSheet({ close }) {
   const [method, setMethod] = useState('password')
   const [secret, setSecret] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [termsAccepted, setTermsAccepted] = useState(false)
   const [inviteOnly, setInviteOnly] = useState(false)
   const ref = useRef(null)
   useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
@@ -23,9 +24,10 @@ function RegisterSheet({ close }) {
     const n = name.trim()
     if (!n) { useUI.getState().toast(t('Enter a name')); return }
     if (inviteOnly && !code.trim()) { useUI.getState().toast(t('An invite code is required')); return }
+    if (!termsAccepted) { useUI.getState().toast(t('Accept the private group terms to continue')); return }
     if (method === 'password' && secret !== confirm) { useUI.getState().toast(t('Password/PIN values do not match')); return }
     try {
-      const u = method === 'password' ? await passwordRegister(n, secret, code.trim()) : await passkeyRegister(n, code.trim())
+      const u = method === 'password' ? await passwordRegister(n, secret, code.trim(), termsAccepted) : await passkeyRegister(n, code.trim(), termsAccepted)
       setUser(u); close()
       if (hasData(useStore.getState().S)) { await pushState(); useUI.getState().toast(t('Profile created — data from this device moved into it')) }
       else { await pullState(); useUI.getState().toast(t('Welcome, {0}', u.name)) }
@@ -54,8 +56,9 @@ function RegisterSheet({ close }) {
         onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
       <div className="dim small" style={{ marginTop: 6 }}>{t('This app is invite-only — enter the code you were given.')}</div>
     </>}
+    <div className="social-toggle" style={{ marginTop: 14, textAlign: 'left' }}><div><b>{t('Private training group')}</b><div className="small muted">{t('I understand that my profile belongs to this private group. I choose what each workout publishes; imported and previous history stays private.')}</div></div><Switch checked={termsAccepted} onChange={setTermsAccepted} /></div>
     <div style={{ height: 12 }} />
-    <Button variant="primary" onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
+    <Button variant="primary" disabled={!termsAccepted} onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
   </>
 }
 

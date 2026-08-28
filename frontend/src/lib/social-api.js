@@ -10,6 +10,12 @@ export const saveSocialMe = profile => api('/api/social/me', { method: 'PUT', bo
 export const purgeSocial = () => api('/api/social/me', { method: 'PUT', body: JSON.stringify({ purge: true }) })
 export const socialFeed = (limit = 20, before = '') => api(`/api/social/feed?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`)
 export const socialPost = id => api(`/api/social/post?id=${encodeURIComponent(id)}`)
+export async function uploadSocialPhoto(blob) {
+  const response = await fetch('/api/social/photo', { method: 'POST', headers: { 'Content-Type': blob.type || 'image/jpeg' }, body: blob })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) { const error = new Error(data.error || `HTTP ${response.status}`); error.status = response.status; throw error }
+  return data.id
+}
 export const socialRankings = week => api(`/api/social/rankings${week ? `?week=${encodeURIComponent(week)}` : ''}`)
 export const socialChallenges = () => api('/api/social/challenges')
 export const savePostSettings = data => api('/api/social/post/settings', { method: 'POST', body: JSON.stringify(data) })

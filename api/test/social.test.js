@@ -116,3 +116,58 @@ test('comments and challenges validate input and keep voluntary membership idemp
   assert.equal(res.body.challenges[0].participants.length, 2);
   assert.equal(res.body.challenges[0].participants.find(p => p.userId === 'owner').value, 1);
 });
+
+test('mandatory membership, post detail and photos stay authenticated and clean up with the post', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opengym-social-photo-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const owner = { id: 'owner', name: 'Owner' }, friend = { id: 'friend', name: 'Friend' };
+  const members = [owner];
+  const states = { owner: { workouts: [] }, friend: { workouts: [] } };
+  const service = createSocialService({ dataDir: dir, users: () => members, readState: id => states[id], writeState: (id, next) => { states[id] = next; }, isAdmin: () => false, sendPush: () => {}, enabled: true, now: () => new Date('2026-08-27T09:00:00Z') });
+  assert.equal(service.getData().profiles.owner.enabled, true);
+
+  const json = (res, code, body) => Object.assign(res, { code, body });
+  const routes = service.routes({ json, readBody: async req => req.body || {}, readRawBody: async req => req.raw, readSession: req => req.user || null, requireAdmin: () => null });
+  members.push(friend);
+  let res = {};
+  await routes['GET /api/social/feed']({ user: friend, url: '/api/social/feed' }, res);
+  assert.equal(res.code, 200);
+  assert.equal(service.getData().profiles.friend.enabled, true);
+  res = {};
+  await routes['POST /api/social/photo']({ user: owner, raw: Buffer.from('not an image') }, res);
+  assert.equal(res.code, 415);
+
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  res = {};
+  await routes['POST /api/social/photo']({ user: owner, raw: jpeg }, res);
+  assert.equal(res.code, 200);
+  const photoId = res.body.id;
+  assert.equal(fs.existsSync(path.join(dir, 'social-photos', photoId)), true);
+
+  states.owner.workouts = [tracked('w1', '2026-08-27')];
+  states.owner.workouts[0].end = Date.parse('2026-08-27T10:00:00Z');
+  states.owner.workouts[0].social = { ...states.owner.workouts[0].social, title: '<Push day>', desc: 'Strong & steady', photoId };
+  await service.syncUserState(owner, states.owner);
+  const snapshot = service.getData().posts['owner:w1'];
+  assert.equal(snapshot.title, 'Push day');
+  assert.equal(snapshot.desc, 'Strong & steady');
+  assert.equal(snapshot.photoId, photoId);
+  assert.equal(snapshot.entries[0].setCount, 1);
+
+  res = {};
+  await routes['GET /api/social/post']({ user: friend, url: '/api/social/post?id=owner%3Aw1' }, res);
+  assert.equal(res.code, 200);
+  assert.equal(res.body.id, 'owner:w1');
+  assert.equal(res.body.commentCount, 0);
+
+  const binaryRes = { writeHead(code, headers) { this.code = code; this.headers = headers; }, end(body) { this.body = body; } };
+  await routes['GET /api/social/photo/:id']({ user: friend, url: `/api/social/photo/${photoId}` }, binaryRes);
+  assert.equal(binaryRes.code, 200);
+  assert.equal(binaryRes.headers['Content-Type'], 'image/jpeg');
+  assert.deepEqual(binaryRes.body, jpeg);
+
+  states.owner.workouts[0].social.publish = false;
+  await service.syncUserState(owner, states.owner);
+  assert.equal(fs.existsSync(path.join(dir, 'social-photos', photoId)), false);
+  assert.equal(service.getData().photoOwners[photoId], undefined);
+});

@@ -9,6 +9,7 @@ export const DEFAULT_FIELDS = Object.freeze({
   bodyweight: false, rating: false, note: false
 });
 export const CHALLENGE_METRICS = ['sessions', 'minutes', 'sets', 'volume', 'prs'];
+const PHOTO_ID = /^[a-f0-9-]{20,40}\.(jpg|png)$/;
 
 const isoNow = () => new Date().toISOString();
 const cleanText = (value, max) => String(value || '').trim().replace(/[<>]/g, '').slice(0, max);
@@ -24,15 +25,15 @@ const validISODate = value => {
 export function defaultSocialProfile(user) {
   return {
     userId: user.id, displayName: cleanText(user.name, 40), bio: '', accent: 'lime',
-    enabled: false, rankingsEnabled: false, enabledAt: null,
+    enabled: true, rankingsEnabled: false, enabledAt: isoNow(),
     rankingsEnabledAt: null,
-    defaultPublish: false, fields: { ...DEFAULT_FIELDS },
+    defaultPublish: false, askFields: true, fields: { ...DEFAULT_FIELDS },
     notifications: { kudos: false, comments: false, challenges: false }
   };
 }
 
 export function emptySocialData() {
-  return { version: SOCIAL_VERSION, profiles: {}, posts: {}, kudos: {}, comments: [], challenges: [], moderation: [] };
+  return { version: SOCIAL_VERSION, profiles: {}, posts: {}, kudos: {}, comments: [], challenges: [], moderation: [], photoOwners: {} };
 }
 
 function normalizeFields(fields, fallback = DEFAULT_FIELDS) {
@@ -49,8 +50,14 @@ function completedSets(workout) {
 function workoutSnapshot(user, workout, profile) {
   const fields = normalizeFields(workout.social?.fields, profile.fields);
   const entries = fields.exerciseNames ? (workout.entries || []).map(entry => {
-    const item = { id: cleanText(entry.id, 100), name: cleanText(entry.n || entry.name || entry.id, 100) };
-    if (fields.exactSets) item.sets = (entry.sets || []).filter(s => s.done).map(s => ({
+    const doneSets = (entry.sets || []).filter(s => s.done);
+    // A per-exercise SET COUNT rides along whenever the exercise name itself is shared, whether
+    // or not the exact weights/reps are (fields.exactSets is a separate, stricter opt-in). A
+    // count reveals nothing about load — "3 sets of squats" without numbers — so it costs
+    // nothing in privacy and it's what a feed card needs to draw the muscle map under the
+    // *default* privacy tier, not only the most permissive one.
+    const item = { id: cleanText(entry.id, 100), name: cleanText(entry.n || entry.name || entry.id, 100), setCount: doneSets.length };
+    if (fields.exactSets) item.sets = doneSets.map(s => ({
       weight: Math.max(0, finite(s.w)), reps: Math.max(0, Math.round(finite(s.r))),
       ...(fields.effort && Number.isFinite(+s.rir) ? { rir: +s.rir } : {}), ...(fields.effort && Number.isFinite(+s.rpe) ? { rpe: +s.rpe } : {})
     }));
@@ -65,6 +72,12 @@ function workoutSnapshot(user, workout, profile) {
     exerciseCount: (workout.entries || []).length, setCount: completedSets(workout).length,
     prCount: Array.isArray(workout.prs) ? workout.prs.length : 0, fields, entries
   };
+  // Title, description and photo describe the post itself rather than a detail someone can
+  // choose to redact from an otherwise-shared workout, so — unlike the fields above — they
+  // aren't gated by a privacy toggle of their own: the publish switch is already the gate.
+  if (workout.social?.title) snapshot.title = cleanText(workout.social.title, 80);
+  if (workout.social?.desc) snapshot.desc = cleanText(workout.social.desc, 500);
+  if (PHOTO_ID.test(String(workout.social?.photoId || ''))) snapshot.photoId = workout.social.photoId;
   if (fields.volume) snapshot.volume = Math.max(0, finite(workout.vol));
   if (fields.volume) snapshot.unit = workout.unit || 'kg';
   if (fields.bodyweight && finite(workout.bw) > 0) snapshot.bodyweight = finite(workout.bw);
@@ -149,6 +162,34 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
   const userById = id => users().find(u => u.id === id);
   const publicProfile = p => p ? ({ userId: p.userId, displayName: p.displayName, bio: p.bio, accent: p.accent }) : null;
 
+  // Post photos: a small per-post upload, kept inside dataDir so it rides along with everything
+  // else the daily backup already covers. Filenames are <uuid>.(jpg|png) — never anything the
+  // client sent, so there is nothing here that needs path sanitising beyond the id regex used
+  // to read one back.
+  const photosDir = path.join(dataDir, 'social-photos');
+  fs.mkdirSync(photosDir, { recursive: true });
+  function deletePostPhoto(post) {
+    if (!post?.photoId || !PHOTO_ID.test(post.photoId)) return;
+    try { fs.unlinkSync(path.join(photosDir, post.photoId)); } catch { /* already gone, or never existed */ }
+    delete data.photoOwners[post.photoId];
+  }
+
+  // Membership is mandatory now (Kaio's call, with every current member told and on board): a
+  // profile is created enabled, not opted into later. enabledAt is always "now" — never the
+  // account's creation date — because eligible() below uses it as the cutoff for what can ever
+  // be published; backdating it would publish someone's entire history the moment they were
+  // enrolled, imported workouts included.
+  function enroll(user) {
+    const profile = { ...defaultSocialProfile(user), enabled: true, enabledAt: now().toISOString() };
+    data.profiles[user.id] = profile;
+    return profile;
+  }
+  // One-time migration for accounts created before membership became mandatory: anyone with no
+  // profile record at all gets enrolled exactly like a fresh signup, same "now, never backdated"
+  // rule. A profile that already exists (someone who opted in under the old opt-in flow) is left
+  // untouched — its own enabledAt keeps standing.
+  if (enabled) { let migrated = false; for (const u of users()) if (!data.profiles[u.id]) { enroll(u); migrated = true; } if (migrated) persist(); }
+
   function eligible(workout, profile) {
     return profile?.enabled && workout?.social?.eligible && workout.origin === 'tracked' && finite(workout.end) >= Date.parse(profile.enabledAt || 0);
   }
@@ -160,54 +201,75 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
     for (const workout of state?.workouts || []) {
       const id = workoutKey(user.id, workout.id);
       if (eligible(workout, profile) && workout.social?.publish && !moderated.has(id)) {
-        keep.add(id); data.posts[id] = workoutSnapshot(user, workout, profile);
+        const next = workoutSnapshot(user, workout, profile);
+        // A post that stays published can still swap or drop its photo (post/settings patches
+        // workout.social directly) — the old file only stops being referenced here, not when
+        // the whole post goes away, so it has to be cleaned up in this branch too.
+        const prevPhoto = data.posts[id]?.photoId;
+        if (prevPhoto && prevPhoto !== next.photoId) deletePostPhoto({ photoId: prevPhoto });
+        keep.add(id); data.posts[id] = next;
       }
     }
     for (const [id, post] of Object.entries(data.posts)) if (post.userId === user.id && !keep.has(id)) {
+      deletePostPhoto(post);
       delete data.posts[id]; delete data.kudos[id]; data.comments = data.comments.filter(c => c.postId !== id);
     }
     await persist();
   }
 
   const stateMap = () => Object.fromEntries(users().map(u => [u.id, readState(u.id) || {}]));
-  const profileFor = user => data.profiles[user.id] || defaultSocialProfile(user);
+  // Everyone with a session should already have a profile from registration or the boot
+  // migration above; this is the belt-and-suspenders path for the one it somehow missed —
+  // enrolled and persisted right here rather than handed a throwaway object nothing ever saves.
+  const profileFor = user => { if (data.profiles[user.id]) return data.profiles[user.id]; const p = enroll(user); persist(); return p; };
   const requireMember = (user, res, json) => {
     if (!enabled) { json(res, 404, { error: 'social is disabled' }); return null; }
-    const p = data.profiles[user.id];
+    const p = profileFor(user);
     if (!p?.enabled) { json(res, 403, { error: 'social consent required' }); return null; }
     return p;
   };
 
-  const routes = ({ json, readBody, readSession, requireAdmin }) => ({
+  const decoratePost = (post, user) => ({
+    ...post,
+    kudos: (data.kudos[post.id] || []).length,
+    kudosByMe: (data.kudos[post.id] || []).includes(user.id),
+    commentCount: data.comments.filter(c => c.postId === post.id).length,
+    comments: data.comments.filter(c => c.postId === post.id).map(c => ({ ...c, mine: c.userId === user.id }))
+  });
+
+  const routes = ({ json, readBody, readRawBody, readSession, requireAdmin }) => ({
     'GET /api/social/me': async (req, res) => {
       const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
       json(res, 200, { enabled, profile: profileFor(user) });
     },
+    // Membership itself is no longer something this route can turn off (see enroll() above) —
+    // `purge` now means "delete everything I've posted", not "leave the group". It only touches
+    // this user's own posts: kudos and comments hanging off THOSE posts go with them, but a
+    // comment they left on someone else's still-standing post, or their spot in a challenge,
+    // is not "a publication" of theirs and is left alone.
     'PUT /api/social/me': async (req, res) => {
       const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
       if (!enabled) return json(res, 404, { error: 'social is disabled' });
       const body = await readBody(req);
       if (body.purge === true) {
-        delete data.profiles[user.id];
-        for (const [id, p] of Object.entries(data.posts)) if (p.userId === user.id) { delete data.posts[id]; delete data.kudos[id]; }
-        data.comments = data.comments.filter(c => c.userId !== user.id && data.posts[c.postId]);
-        data.challenges = data.challenges.map(c => ({ ...c, participants: c.participants.filter(p => p.userId !== user.id) }));
-        await persist(); return json(res, 200, { ok: true, profile: defaultSocialProfile(user) });
+        for (const [id, p] of Object.entries(data.posts)) if (p.userId === user.id) {
+          deletePostPhoto(p);
+          delete data.posts[id]; delete data.kudos[id]; data.comments = data.comments.filter(c => c.postId !== id);
+        }
+        await persist(); return json(res, 200, { ok: true, profile: profileFor(user) });
       }
-      const prev = profileFor(user), activating = !prev.enabled && body.enabled === true;
+      const prev = profileFor(user);
       const enablingRankings = !prev.rankingsEnabled && body.rankingsEnabled === true;
       const profile = {
         ...prev, displayName: cleanText(body.displayName ?? prev.displayName, 40) || user.name,
         bio: cleanText(body.bio ?? prev.bio, 120), accent: cleanText(body.accent ?? prev.accent, 20) || 'lime',
-        enabled: body.enabled === undefined ? prev.enabled : !!body.enabled,
         rankingsEnabled: body.rankingsEnabled === undefined ? prev.rankingsEnabled : !!body.rankingsEnabled,
         rankingsEnabledAt: enablingRankings ? now().toISOString() : prev.rankingsEnabledAt,
-        enabledAt: activating ? now().toISOString() : prev.enabledAt,
         defaultPublish: body.defaultPublish === undefined ? prev.defaultPublish : !!body.defaultPublish,
+        askFields: body.askFields === undefined ? prev.askFields !== false : !!body.askFields,
         fields: normalizeFields(body.fields, prev.fields),
         notifications: { ...prev.notifications, ...(body.notifications || {}) }
       };
-      if (!profile.enabled) profile.rankingsEnabled = false;
       data.profiles[user.id] = profile; await syncUserState(user, readState(user.id) || {});
       json(res, 200, { ok: true, profile });
     },
@@ -218,15 +280,57 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
       const limit = Math.max(1, Math.min(50, +(url.searchParams.get('limit') || 20)));
       let posts = Object.values(data.posts).sort((a, b) => b.completedAt.localeCompare(a.completedAt));
       if (before) posts = posts.filter(p => p.completedAt < before);
-      posts = posts.slice(0, limit).map(p => ({ ...p, kudos: (data.kudos[p.id] || []).length, kudosByMe: (data.kudos[p.id] || []).includes(user.id), comments: data.comments.filter(c => c.postId === p.id).map(c => ({ ...c, mine: c.userId === user.id })) }));
+      posts = posts.slice(0, limit).map(p => decoratePost(p, user));
       json(res, 200, { posts, next: posts.at(-1)?.completedAt || null });
+    },
+    'GET /api/social/post': async (req, res) => {
+      const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
+      if (!requireMember(user, res, json)) return;
+      const id = safeId(new URL(req.url, 'http://x').searchParams.get('id'));
+      const post = data.posts[id];
+      if (!post) return json(res, 404, { error: 'post not found' });
+      json(res, 200, decoratePost(post, user));
+    },
+    'POST /api/social/photo': async (req, res) => {
+      const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
+      if (!requireMember(user, res, json)) return;
+      const image = await readRawBody(req, 1024 * 1024);
+      const jpeg = image.length >= 3 && image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff;
+      const png = image.length >= 8 && image.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      if (!jpeg && !png) return json(res, 415, { error: 'only JPEG and PNG images are accepted' });
+      const id = `${crypto.randomUUID()}.${jpeg ? 'jpg' : 'png'}`;
+      fs.writeFileSync(path.join(photosDir, id), image, { mode: 0o600, flag: 'wx' });
+      data.photoOwners[id] = user.id;
+      await persist();
+      json(res, 200, { id });
+    },
+    'GET /api/social/photo/:id': async (req, res) => {
+      const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
+      if (!requireMember(user, res, json)) return;
+      let id;
+      try { id = decodeURIComponent(new URL(req.url, 'http://x').pathname.slice('/api/social/photo/'.length)); }
+      catch { return json(res, 404, { error: 'photo not found' }); }
+      if (!PHOTO_ID.test(id)) return json(res, 404, { error: 'photo not found' });
+      let image;
+      try { image = fs.readFileSync(path.join(photosDir, id)); } catch { return json(res, 404, { error: 'photo not found' }); }
+      res.writeHead(200, { 'Content-Type': id.endsWith('.png') ? 'image/png' : 'image/jpeg', 'Content-Length': image.length, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      res.end(image);
     },
     'POST /api/social/post/settings': async (req, res) => {
       const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
       const profile = requireMember(user, res, json); if (!profile) return;
       const body = await readBody(req), state = readState(user.id) || {}, workout = (state.workouts || []).find(w => w.id === body.workoutId);
       if (!workout || !eligible(workout, profile)) return json(res, 404, { error: 'eligible workout not found' });
-      workout.social = { ...workout.social, publish: !!body.publish, fields: normalizeFields(body.fields, profile.fields) };
+      const photoId = body.photoId === null || body.photoId === '' ? null : String(body.photoId || workout.social?.photoId || '');
+      if (photoId && (!PHOTO_ID.test(photoId) || data.photoOwners[photoId] !== user.id)) return json(res, 400, { error: 'invalid post photo' });
+      workout.social = {
+        ...workout.social,
+        publish: !!body.publish,
+        fields: normalizeFields(body.fields, profile.fields),
+        title: cleanText(body.title ?? workout.social?.title, 80),
+        desc: cleanText(body.desc ?? workout.social?.desc, 500),
+        ...(photoId ? { photoId } : { photoId: null })
+      };
       writeState(user.id, state); await syncUserState(user, state);
       json(res, 200, { ok: true, social: workout.social });
     },
@@ -239,7 +343,7 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
       const set = new Set(data.kudos[post.id] || []);
       const active = typeof body.active === 'boolean' ? body.active : !set.has(user.id);
       active ? set.add(user.id) : set.delete(user.id); data.kudos[post.id] = [...set]; await persist();
-      const owner = data.profiles[post.userId]; if (set.has(user.id) && owner?.notifications?.kudos) sendPush(post.userId, { title: 'New kudos', body: `${profileFor(user).displayName} supported your workout`, tag: `social-kudos-${post.id}`, url: '#/social' });
+      const owner = data.profiles[post.userId]; if (set.has(user.id) && owner?.notifications?.kudos) sendPush(post.userId, { title: 'New kudos', body: `${profileFor(user).displayName} supported your workout`, tag: `social-kudos-${post.id}`, url: `#/post/${encodeURIComponent(post.id)}` });
       json(res, 200, { ok: true, active: set.has(user.id), count: set.size });
     },
     'POST /api/social/comments/new': async (req, res) => {
@@ -249,7 +353,7 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
       if (!post) return json(res, 404, { error: 'post not found' }); if (!text) return json(res, 400, { error: 'comment required' });
       const comment = { id: crypto.randomUUID(), postId: post.id, userId: user.id, author: profile.displayName, text, createdAt: now().toISOString() };
       data.comments.push(comment); await persist();
-      const owner = data.profiles[post.userId]; if (post.userId !== user.id && owner?.notifications?.comments) sendPush(post.userId, { title: 'New comment', body: `${profile.displayName}: ${text}`, tag: `social-comment-${post.id}`, url: '#/social' });
+      const owner = data.profiles[post.userId]; if (post.userId !== user.id && owner?.notifications?.comments) sendPush(post.userId, { title: 'New comment', body: `${profile.displayName}: ${text}`, tag: `social-comment-${post.id}`, url: `#/post/${encodeURIComponent(post.id)}` });
       json(res, 200, { comment: { ...comment, mine: true } });
     },
     'POST /api/social/comments/delete': async (req, res) => {
@@ -283,7 +387,7 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
       const challenge = { id: crypto.randomUUID(), title: cleanText(body.title, 80), metric, start, end, creatorId: user.id, createdAt: now().toISOString(), participants: [{ userId: user.id, joinedAt: now().toISOString() }] };
       if (!challenge.title) return json(res, 400, { error: 'title required' });
       data.challenges.push(challenge); await persist();
-      for (const profile of Object.values(data.profiles)) if (profile.userId !== user.id && profile.enabled && profile.notifications?.challenges) sendPush(profile.userId, { title: 'New training challenge', body: `${profileFor(user).displayName}: ${challenge.title}`, tag: `social-challenge-${challenge.id}`, url: '#/social' });
+      for (const profile of Object.values(data.profiles)) if (profile.userId !== user.id && profile.enabled && profile.notifications?.challenges) sendPush(profile.userId, { title: 'New training challenge', body: `${profileFor(user).displayName}: ${challenge.title}`, tag: `social-challenge-${challenge.id}`, url: '#/stats' });
       json(res, 200, { challenge });
     },
     'POST /api/social/challenges/join': async (req, res) => {
@@ -306,7 +410,7 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
       const body = await readBody(req), post = data.posts[safeId(body.postId)]; if (!post) return json(res, 404, { error: 'post not found' });
       const state = readState(post.userId) || {}, workout = (state.workouts || []).find(w => w.id === post.workoutId);
       if (workout?.social) { workout.social.publish = false; writeState(post.userId, state); }
-      delete data.posts[post.id]; delete data.kudos[post.id]; data.comments = data.comments.filter(c => c.postId !== post.id);
+      deletePostPhoto(post); delete data.posts[post.id]; delete data.kudos[post.id]; data.comments = data.comments.filter(c => c.postId !== post.id);
       data.moderation.push({ id: crypto.randomUUID(), adminId: admin.id, action: 'remove-post', targetId: post.id, reason: cleanText(body.reason, 160), createdAt: now().toISOString() });
       await persist(); json(res, 200, { ok: true });
     },
@@ -335,7 +439,7 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
       if (!profile) return json(res, 404, { error: 'social profile not found' });
       profile.enabled = !body.disabled; if (body.disabled) profile.rankingsEnabled = false;
       if (body.disabled) {
-        for (const [id, post] of Object.entries(data.posts)) if (post.userId === profile.userId) { delete data.posts[id]; delete data.kudos[id]; }
+        for (const [id, post] of Object.entries(data.posts)) if (post.userId === profile.userId) { deletePostPhoto(post); delete data.posts[id]; delete data.kudos[id]; }
         data.comments = data.comments.filter(c => c.userId !== profile.userId && data.posts[c.postId]);
         data.challenges = data.challenges.map(c => ({ ...c, participants: c.participants.filter(p => p.userId !== profile.userId) }));
       }

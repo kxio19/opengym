@@ -171,7 +171,7 @@ docker compose up -d --build
 The app shell is versioned (`?v=N`) so clients pick up changes on next load. Your `./data` and the
 downloaded media are untouched.
 
-## 8. Private Social (optional)
+## 8. Private Social (optional per instance)
 
 Private Social is disabled for the whole instance until the owner opts in:
 
@@ -181,10 +181,12 @@ SOCIAL_TZ=Europe/Madrid
 SOURCE_URL=https://github.com/kxio19/opengym
 ```
 
-Restart with `docker compose up -d --build`. Each profile must then consent separately. Ranking
-participation is independent from feed publication, sharing fields are selected per workout, and
-imports or workouts completed before consent are excluded permanently. Social data lives in
-`data/social.json` and is covered by the same backup as passkeys and private workout state.
+Restart with `docker compose up -d --build`. When enabled, new profiles must accept the private
+group terms during signup and become group members automatically. Ranking participation remains
+independent from feed publication, sharing fields are selected per workout, and imports or
+workouts completed before membership are excluded permanently. Feed photos are resized in the
+browser, limited to 1 MB, and stored in `data/social-photos/`; both that directory and
+`data/social.json` are covered by the same backup as passkeys and private workout state.
 
 ## 9. The AI Coach (optional)
 

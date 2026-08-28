@@ -17,6 +17,7 @@ import {
   effortHistogram, isHardSet, HARD_RIR
 } from '../lib/effort.js'
 import { Button, Segmented, SelectRow } from '../components/ui.jsx'
+import SocialStats from '../components/SocialStats.jsx'
 
 // Which muscles the training in a window actually hit — and, the point of the card,
 // which ones it keeps missing. Shading is relative within the window (lib/muscles.js).
@@ -263,5 +264,6 @@ export default function Stats() {
       </div>
       <div className="list">{[...S.workouts].reverse().slice(0, 6).map(w => <WorkoutRow key={w.id} w={w} onClick={() => workoutDetailSheet(w)} />)}</div>
     </>}
+    <SocialStats />
   </>
 }

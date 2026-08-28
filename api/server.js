@@ -294,6 +294,21 @@ function readBody(req, limit = MAX_BODY) {
     req.on('error', reject);
   });
 }
+function readRawBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0; let tooLarge = false; const chunks = [];
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > limit) { tooLarge = true; return; }
+      if (!tooLarge) chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (tooLarge) { const error = new Error('body too large'); error.status = 413; reject(error); }
+      else resolve(Buffer.concat(chunks));
+    });
+    req.on('error', reject);
+  });
+}
 const b64uToBuf = s => Buffer.from(s, 'base64url');
 
 /* ---------- live presence (in-memory) ---------- */
@@ -369,6 +384,7 @@ const routes = {
 
   'POST /api/password/register': async (req, res) => {
     const body = await readBody(req, 4096);
+    if (body.termsAccepted !== true) return json(res, 400, { error: 'group terms must be accepted' });
     const name = String(body.name || '').normalize('NFKC').trim().slice(0, 40);
     const username = normalizeUsername(name);
     if (!name) return json(res, 400, { error: 'name required' });
@@ -387,6 +403,7 @@ const routes = {
       if (!invite) return json(res, 403, { error: 'invite code is no longer valid — ask for a new one' });
     }
     const user = { id: crypto.randomBytes(12).toString('base64url'), name, passwordHash, created: new Date().toISOString() };
+    user.termsAcceptedAt = user.created;
     if (invite) { user.invitedBy = invite.code; invite.usedBy = user.id; invite.usedAt = user.created; }
     db.users.push(user);
     saveDb();
@@ -463,6 +480,7 @@ const routes = {
 
   'POST /api/register/options': async (req, res) => {
     const body = await readBody(req);
+    if (body.termsAccepted !== true) return json(res, 400, { error: 'group terms must be accepted' });
     const name = String(body.name || '').normalize('NFKC').trim().slice(0, 40);
     if (!name) return json(res, 400, { error: 'name required' });
     if (db.users.some(u => normalizeUsername(u.name) === normalizeUsername(name))) return json(res, 409, { error: 'that username is already in use' });
@@ -477,14 +495,14 @@ const routes = {
       authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
       excludeCredentials: []
     });
-    const cid = putChallenge({ challenge: options.challenge, name, uid, code });
+    const cid = putChallenge({ challenge: options.challenge, name, uid, code, termsAccepted: true });
     json(res, 200, { cid, options });
   },
 
   'POST /api/register/verify': async (req, res) => {
     const body = await readBody(req);
     const c = takeChallenge(body.cid);
-    if (!c || !c.uid) return json(res, 400, { error: 'challenge expired — try again' });
+    if (!c || !c.uid || !c.termsAccepted) return json(res, 400, { error: 'challenge expired — try again' });
     let verification;
     try {
       verification = await verifyRegistrationResponse({
@@ -506,6 +524,7 @@ const routes = {
       if (!invite) return json(res, 403, { error: 'invite code is no longer valid — ask for a new one' });
     }
     const user = { id: c.uid, name: c.name, created: new Date().toISOString() };
+    user.termsAcceptedAt = user.created;
     if (invite) { user.invitedBy = invite.code; invite.usedBy = user.id; invite.usedAt = user.created; }
     db.users.push(user);
     db.creds.push({
@@ -915,7 +934,7 @@ const routes = {
   // Routes live in coach/routes.js and are handed the helpers above rather than importing
   // them: they are closures over db and SECRET, and passing them in keeps that module free of
   // a cycle. Every one of them is inert while the feature is unconfigured.
-  ...social.routes({ json, readBody: req => readBody(req, 64 * 1024), readSession, requireAdmin }),
+  ...social.routes({ json, readBody: req => readBody(req, 64 * 1024), readRawBody, readSession, requireAdmin }),
   ...coachRoutes({ json, readBody, readSession, requireAdmin })
 };
 
@@ -939,13 +958,13 @@ startCadence({ users: () => db.users, userNow });
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const key = req.method + ' ' + url.pathname;
-  const handler = routes[key];
+  const handler = routes[key] || (req.method === 'GET' && url.pathname.startsWith('/api/social/photo/') ? routes['GET /api/social/photo/:id'] : null);
   if (!handler) return json(res, 404, { error: 'not found' });
   const rate = rateAllowed(req, key);
   if (!rate.ok) return json(res, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });
   try { await handler(req, res); }
   catch (e) {
     console.error(key, e);
-    if (!res.headersSent) json(res, 500, { error: 'server error' });
+    if (!res.headersSent) json(res, e.status || 500, { error: e.status === 413 ? 'body too large' : 'server error' });
   }
 }).listen(PORT, () => console.log(`gym-api on :${PORT} (rpID=${RP_ID}, origin=${ORIGIN})`));

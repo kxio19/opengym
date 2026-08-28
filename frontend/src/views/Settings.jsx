@@ -14,6 +14,7 @@ import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { forgetCoach } from '../lib/coach-api.js'
 import Icon from '../components/Icon.jsx'
+import SocialSettings from '../components/SocialSettings.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
 
 export default function Settings() {
@@ -97,7 +98,6 @@ export default function Settings() {
         {webauthnOK() && <Row icon="key" iconTint="var(--blue)" title={t('Add another passkey')} subtitle={t('Add this phone or choose another device with the system QR option.')} accessory="chevron" onClick={addPasskeyHere} />}
         {(user.hasPasskey || user.hasPassword) && <Row icon="shield" iconTint="var(--orange)" title={t('Recovery codes')} subtitle={t('One-time access when your usual way in is unavailable.')} accessory="chevron" onClick={recoveryCodesHere} />}
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
-        {config?.social?.enabled && <Row icon="personCircle" iconTint="var(--acc)" title={t('Social and privacy')} subtitle={t('Profile, rankings and sharing defaults')} accessory="chevron" onClick={() => nav('/social')} />}
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
         <Row icon="shield" iconTint="var(--red)" title={t('Sign out everywhere')} subtitle={t('Ends this profile’s sessions on all your devices.')} danger onClick={signOutEverywhere} />
       </> : <>
@@ -128,6 +128,8 @@ export default function Settings() {
     {/* Rescues are never silent: the person they were used on is told they happened. */}
     {user?.lastAdminRecovery && !user.mustChangeSecret &&
       <p className="sect-f" style={{ marginTop: -6, marginBottom: 22 }}>{t('An administrator restored access to this profile on {0}.', fmtDate(String(user.lastAdminRecovery).slice(0, 10)))}</p>}
+
+    {user && <SocialSettings />}
 
     {/* ---------- general ---------- */}
     <Section title={t('General')} footer={t('Note: switching units only changes the label — logged numbers are not converted.')}>
@@ -376,13 +378,15 @@ function RegisterInline({ close, setUser, pushState, pullState, toast, inviteOnl
   const [method, setMethod] = useState('password')
   const [secret, setSecret] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [termsAccepted, setTermsAccepted] = useState(false)
   const go = async () => {
     const n = name.trim()
     if (!n) { toast(t('Enter a name')); return }
     if (inviteOnly && !code.trim()) { toast(t('An invite code is required')); return }
+    if (!termsAccepted) { toast(t('Accept the private group terms to continue')); return }
     if (method === 'password' && secret !== confirm) { toast(t('Password/PIN values do not match')); return }
     try {
-      const u = method === 'password' ? await passwordRegister(n, secret, code.trim()) : await passkeyRegister(n, code.trim())
+      const u = method === 'password' ? await passwordRegister(n, secret, code.trim(), termsAccepted) : await passkeyRegister(n, code.trim(), termsAccepted)
       setUser(u); close()
       if (hasData(useStore.getState().S)) { await pushState(); toast(t('Profile created — data moved into it')) }
       else { await pullState(); toast(t('Welcome, {0}', u.name)) }
@@ -406,7 +410,8 @@ function RegisterInline({ close, setUser, pushState, pullState, toast, inviteOnl
     {inviteOnly && <>
       <div style={{ height: 10 }} /><TextField value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder={t('Invite code')} maxLength={40} />
     </>}
-    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
+    <div className="social-toggle" style={{ marginTop: 14 }}><div><b>{t('Private training group')}</b><div className="small muted">{t('I understand that my profile belongs to this private group. I choose what each workout publishes; imported and previous history stays private.')}</div></div><Switch checked={termsAccepted} onChange={setTermsAccepted} /></div>
+    <div style={{ height: 12 }} /><Button variant="primary" disabled={!termsAccepted} onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
   </>
 }
 

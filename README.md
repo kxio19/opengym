@@ -31,10 +31,11 @@ No account on someone else's server, no subscription, no ads. Just `docker compo
 >
 > A fork of [DuarteSantos8/openGym](https://github.com/DuarteSantos8/openGym) that adds two
 > optional, self-hosted features: an AI that **designs** and reviews your training plan,
-> plus an invite-only training community with a privacy-first feed, weekly podiums and challenges.
+> plus an invite-only training community with a privacy-first feed on Home, weekly podiums and challenges.
 >
-> Both features are instance-gated and require separate per-profile consent. Private Social never
-> publishes or ranks imported/old history, and every workout has its own sharing controls.
+> Both features are instance-gated. When Private Social is enabled, new members accept the private
+> group terms during signup; every workout still has its own sharing controls and imported/old
+> history is never published or ranked.
 >
 > **→ [What it does and how to use it](docs/AI_COACH.md)** ·
 > [Private Social & KaioHUB deploy](docs/KAIOHUB_DEPLOY.md) ·
@@ -91,7 +92,7 @@ as a home-screen app, passkey sign-in, offline support, sync across your phone a
 - 💪 **Muscle map** — a front-and-back body diagram shaded by how much work each muscle got, over a week, a month or all time. It names the muscles you *haven't* trained in that period, previews what a routine hits while you build it, and shows what you just trained when you finish. Male or female figure, your pick
 - 🔔 **Push notifications** — rest-timer alerts even with the app closed, plus an optional reminder on days you have a workout planned but haven't logged one. Opt in per profile; keys are generated on first run, nothing to configure
 - 🤖 **AI Coach** (optional) — an AI that *designs* your plan and adjusts it from what you actually log. A short intake produces a complete weekly plan you can refine in plain language; on demand or on a schedule it reads your stalls, effort ratings, adherence and body-weight trend and proposes **discrete, explained changes** you accept one by one. Choose the official Claude Agent SDK or the bundled OpenAI Codex CLI with ChatGPT device-code sign-in; it is off until the instance owner enables it, needs each profile's separate consent, and never changes anything without your approval — every change-set is snapshotted and revertible. The progression engine still owns your session-to-session weights. **[Full guide →](docs/AI_COACH.md)**
-- 👥 **Private Social** (optional) — opt-in workout feed, kudos, plain-text comments, weekly category podiums and an overall normalized leaderboard, plus voluntary challenges. Sharing fields are controlled per profile and per workout; rankings have separate consent, and imported or pre-consent history is never eligible
+- 👥 **Private Social** (optional per instance) — an invite-only group feed directly on Home, with titles, descriptions, one optimized photo, kudos and plain-text comments; weekly podiums and voluntary challenges live in Stats. Membership is part of signup when enabled, while feed publication and rankings remain separate choices. Sharing fields are controlled per profile and per workout, and imported or pre-membership history is never eligible
 - 🔑 **Your choice of login** — use passkeys, or create a profile with a unique username plus an 8+ character password or 6–12 digit PIN. Passkey profiles can attach several devices and keep one-time recovery codes
 - 🛠️ **Admin dashboard** (optional) — for whoever runs the instance: who's training right now, per-user history, disable accounts, and invite-only signup. Off by default, so a fresh instance stays open with no admin
 - 🆘 **Nobody loses an account** — a profile down to its last passkey is told so, and can add recovery codes or a password at any time. If someone is locked out anyway, an admin can issue a single-use code or set a temporary password they must replace at the next sign-in. Both actions are recorded and shown to the person they were used on, because either one also means being able to sign in as them

@@ -41,15 +41,21 @@ test('a profile can register and sign in without a passkey', async () => {
     if (attempt === 49) throw new Error('test API did not start: ' + childError);
   }
 
-  const withoutInvite = await fetch(base + '/api/password/register', {
+  const withoutTerms = await fetch(base + '/api/password/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'Kaio', secret: '123456' })
+  });
+  assert.equal(withoutTerms.status, 400);
+
+  const withoutInvite = await fetch(base + '/api/password/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Kaio', secret: '123456', termsAccepted: true })
   });
   assert.equal(withoutInvite.status, 403);
 
   const register = await fetch(base + '/api/password/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Kaio', secret: '123456', code: 'invite-123' })
+    body: JSON.stringify({ name: 'Kaio', secret: '123456', code: 'invite-123', termsAccepted: true })
   });
   assert.equal(register.status, 200);
   const registered = await register.json();
@@ -59,6 +65,7 @@ test('a profile can register and sign in without a passkey', async () => {
 
   const stored = JSON.parse(fs.readFileSync(path.join(dir, 'db.json'), 'utf8'));
   assert.equal(stored.users[0].passwordHash.includes('123456'), false);
+  assert.match(stored.users[0].termsAcceptedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(stored.creds.length, 0);
   assert.equal(stored.invites[0].usedBy, stored.users[0].id);
 
@@ -99,7 +106,7 @@ test('a profile can register and sign in without a passkey', async () => {
 
   const duplicate = await fetch(base + '/api/password/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'kaio', secret: 'another password' })
+    body: JSON.stringify({ name: 'kaio', secret: 'another password', termsAccepted: true })
   });
   assert.equal(duplicate.status, 409);
 });

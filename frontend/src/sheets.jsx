@@ -11,7 +11,7 @@ import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
 import Stepper from './components/Stepper.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Slider, Switch, Segmented, SelectRow, TextArea } from './components/ui.jsx'
+import { Button, Slider, Switch, Segmented, SelectRow, TextArea, TextField } from './components/ui.jsx'
 import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { loadOfWorkouts } from './lib/muscles.js'
@@ -20,7 +20,8 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
-import { SOCIAL_FIELD_DEFAULTS, socialMe, savePostSettings } from './lib/social-api.js'
+import { SOCIAL_FIELD_DEFAULTS, socialMe, saveSocialMe, savePostSettings, uploadSocialPhoto } from './lib/social-api.js'
+import { resizeSocialPhoto } from './lib/social-photo.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -700,15 +701,34 @@ function WorkoutDetail({ w, close }) {
   const socialAvailable = !!useStore(s => s.config)?.social?.enabled && !!w.social?.eligible
   const [shared, setShared] = useState(!!w.social?.publish)
   const [shareFields, setShareFields] = useState({ ...SOCIAL_FIELD_DEFAULTS, ...(w.social?.fields || {}) })
+  const [postTitle, setPostTitle] = useState(w.social?.title || w.name)
+  const [postDesc, setPostDesc] = useState(w.social?.desc || '')
+  const [photo, setPhoto] = useState(null)
+  const [currentPhotoId, setCurrentPhotoId] = useState(w.social?.photoId || null)
+  const [removePhoto, setRemovePhoto] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  useEffect(() => () => { if (photo?.preview) URL.revokeObjectURL(photo.preview) }, [photo?.preview])
+  const choosePhoto = async event => {
+    const file = event.target.files?.[0]; event.target.value = ''; if (!file) return
+    setPhotoBusy(true)
+    try { const blob = await resizeSocialPhoto(file); setPhoto({ blob, preview: URL.createObjectURL(blob) }); setRemovePhoto(false) }
+    catch (e) { toast(t(e.message)) } finally { setPhotoBusy(false) }
+  }
   const saveShared = async (publish, fields = shareFields) => {
     setShared(publish)
-    update(s => { const rec = s.workouts.find(x => x.id === w.id); if (rec?.social) rec.social = { ...rec.social, publish, fields } })
-    try { await useStore.getState().pushState(); await savePostSettings({ workoutId: w.id, publish, fields }); toast(publish ? t('Workout shared') : t('Workout removed from Social')) }
+    try {
+      const photoId = photo?.blob ? await uploadSocialPhoto(photo.blob) : removePhoto ? null : currentPhotoId
+      const next = { publish, fields, title: postTitle.trim().slice(0, 80), desc: postDesc.trim().slice(0, 500), photoId }
+      update(s => { const rec = s.workouts.find(x => x.id === w.id); if (rec?.social) rec.social = { ...rec.social, ...next } })
+      await useStore.getState().pushState(); await savePostSettings({ workoutId: w.id, ...next }); toast(publish ? t('Publication saved') : t('Workout removed from Social'))
+      setCurrentPhotoId(photoId)
+      setPhoto(null)
+    }
     catch (e) { toast(e.message) }
   }
   const setField = (key, value) => {
     const fields = { ...shareFields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) }
-    setShareFields(fields); saveShared(shared, fields)
+    setShareFields(fields)
   }
   return <>
     <h3>{w.name}</h3>
@@ -721,7 +741,14 @@ function WorkoutDetail({ w, close }) {
           <div className="ss">{e.sets.filter(s => s.done).map(s => setLabel(e.id, s, e.target)).join('  ·  ') || t('no sets')}</div></div>
       </div>
     })}
-    {socialAvailable && <div className="finish-social" style={{ marginBottom: 12 }}><div className="social-toggle"><div><b>{t('Share with your group')}</b><div className="small muted">{t('Changing this does not change ranking eligibility.')}</div></div><Switch checked={shared} onChange={saveShared} /></div>{shared && <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={shareFields[key]} disabled={(key === 'exactSets' || key === 'effort') && !shareFields.exerciseNames} onChange={value => setField(key, value)} /></div>)}</details>}</div>}
+    {socialAvailable && <div className="finish-social" style={{ marginBottom: 12 }}><div className="social-toggle"><div><b>{t('Share with your group')}</b><div className="small muted">{t('Changing this does not change ranking eligibility.')}</div></div><Switch checked={shared} onChange={saveShared} /></div>{shared && <>
+      <div style={{ height: 10 }} /><TextField maxLength={80} value={postTitle} placeholder={t('Post title')} onChange={e => setPostTitle(e.target.value)} />
+      <div style={{ height: 8 }} /><TextArea rows={3} maxLength={500} value={postDesc} placeholder={t('Say something about this workout…')} onChange={e => setPostDesc(e.target.value)} />
+      {(photo?.preview || (currentPhotoId && !removePhoto)) && <div className="post-photo-preview"><img src={photo?.preview || `/api/social/photo/${encodeURIComponent(currentPhotoId)}`} alt="" /><button className="iconbtn" onClick={() => { setPhoto(null); setRemovePhoto(true) }} aria-label={t('Remove photo')}><Icon name="xmark" /></button></div>}
+      {!photo && (!currentPhotoId || removePhoto) && <label className="btn" style={{ marginTop: 8, cursor: 'pointer' }}><Icon name="camera" />{photoBusy ? t('Preparing photo…') : t('Add photo')}<input type="file" accept="image/jpeg,image/png" hidden onChange={choosePhoto} /></label>}
+      <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={shareFields[key]} disabled={(key === 'exactSets' || key === 'effort') && !shareFields.exerciseNames} onChange={value => setField(key, value)} /></div>)}</details>
+      <Button size="sm" disabled={photoBusy} onClick={() => saveShared(true)}>{t('Save publication')}</Button>
+    </>}</div>}
     <Button variant="danger" onClick={() => confirmSheet({ title: t('Delete workout?'), message: t('This removes it from your history for good.'), confirmText: t('Delete'), danger: true, onConfirm: () => { update(s => { s.workouts = s.workouts.filter(x => x.id !== w.id) }); close(); toast(t('Workout deleted')) } })}>{t('Delete workout')}</Button>
   </>
 }
@@ -901,21 +928,39 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
   const socialAvailable = !!useStore(s => s.config)?.social?.enabled && !MOBILE
   const [social, setSocial] = useState(null)
   const [socialChecked, setSocialChecked] = useState(!socialAvailable)
+  const [photo, setPhoto] = useState(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [remember, setRemember] = useState(false)
   useEffect(() => {
     if (!socialAvailable) return
     socialMe().then(({ profile }) => {
-      if (profile?.enabled) setSocial({ publish: !!profile.defaultPublish, fields: { ...SOCIAL_FIELD_DEFAULTS, ...profile.fields } })
+      if (profile?.enabled) setSocial({ publish: !!profile.defaultPublish, title: w.name, desc: '', askFields: profile.askFields !== false, fields: { ...SOCIAL_FIELD_DEFAULTS, ...profile.fields } })
     }).catch(() => {}).finally(() => setSocialChecked(true))
   }, [socialAvailable])
+  useEffect(() => () => { if (photo?.preview) URL.revokeObjectURL(photo.preview) }, [photo?.preview])
+  const choosePhoto = async event => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setPhotoBusy(true)
+    try {
+      const blob = await resizeSocialPhoto(file)
+      setPhoto(prev => { if (prev?.preview) URL.revokeObjectURL(prev.preview); return { blob, preview: URL.createObjectURL(blob) } })
+    } catch (e) { toast(t(e.message)) } finally { setPhotoBusy(false) }
+  }
   const done = async () => {
-    if (social) {
-      update(s => {
-        const rec = s.workouts.find(x => x.id === w.id)
-        if (rec) rec.social = { eligible: true, publish: !!social.publish, fields: { ...social.fields } }
-      })
-      await useStore.getState().pushState()
-    }
-    close(); nav('/home')
+    try {
+      if (social) {
+        const photoId = social.publish && photo?.blob ? await uploadSocialPhoto(photo.blob) : null
+        update(s => {
+          const rec = s.workouts.find(x => x.id === w.id)
+          if (rec) rec.social = { eligible: true, publish: !!social.publish, fields: { ...social.fields }, title: social.title.trim().slice(0, 80), desc: social.desc.trim().slice(0, 500), photoId }
+        })
+        await useStore.getState().pushState()
+        if (remember && social.askFields) await saveSocialMe({ defaultPublish: !!social.publish, fields: social.fields, askFields: false })
+      }
+      close(); nav('/home')
+    } catch (e) { toast(e.message) }
   }
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>
     <div style={{ fontSize: 44, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="trophy" /></div>
@@ -935,11 +980,18 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     {coachOn && <SessionRating w={w} />}
     {social && <div className="finish-social">
       <div className="social-toggle"><div style={{ textAlign: 'left' }}><b>{t('Share with your group')}</b><div className="small muted">{t('This workout can still count in rankings when the post is off.')}</div></div><Switch checked={social.publish} onChange={publish => setSocial(v => ({ ...v, publish }))} /></div>
-      {social.publish && <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={social.fields[key]} disabled={(key === 'exactSets' || key === 'effort') && !social.fields.exerciseNames} onChange={value => setSocial(v => ({ ...v, fields: { ...v.fields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) } }))} /></div>)}</details>}
+      {social.publish && <div style={{ textAlign: 'left', marginTop: 12 }}>
+        <TextField maxLength={80} value={social.title} placeholder={t('Post title')} onChange={e => setSocial(v => ({ ...v, title: e.target.value }))} />
+        <div style={{ height: 8 }} /><TextArea rows={3} maxLength={500} value={social.desc} placeholder={t('Say something about this workout…')} onChange={e => setSocial(v => ({ ...v, desc: e.target.value }))} />
+        {photo?.preview && <div className="post-photo-preview"><img src={photo.preview} alt="" /><button className="iconbtn" onClick={() => setPhoto(null)} aria-label={t('Remove photo')}><Icon name="xmark" /></button></div>}
+        {!photo && <label className="btn" style={{ marginTop: 8, cursor: 'pointer' }}><Icon name="camera" />{photoBusy ? t('Preparing photo…') : t('Add photo')}<input type="file" accept="image/jpeg,image/png" hidden onChange={choosePhoto} /></label>}
+        {social.askFields && <details open><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={social.fields[key]} disabled={(key === 'exactSets' || key === 'effort') && !social.fields.exerciseNames} onChange={value => setSocial(v => ({ ...v, fields: { ...v.fields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) } }))} /></div>)}</details>}
+        {social.askFields && <div className="social-toggle"><div><b>{t('Use these choices next time')}</b><div className="small muted">{t('You can change them later in Settings.')}</div></div><Switch checked={remember} onChange={setRemember} /></div>}
+      </div>}
     </div>}
     <div style={{ height: 14 }} />
     {!socialChecked && <div className="small muted" style={{ marginBottom: 8 }}>{t('Loading privacy choices…')}</div>}
-    <Button variant="primary" disabled={!socialChecked} onClick={done}>{t('Nice!')}</Button>
+    <Button variant="primary" disabled={!socialChecked || photoBusy} onClick={done}>{t('Nice!')}</Button>
   </div>
 }
 export function finishWorkout() {

@@ -188,6 +188,6 @@ export default function Home() {
 
     {coachOn && <CoachCard nav={nav} />}
 
-    {config?.social?.enabled && <Feed />}
+    {config?.social?.enabled && user && <Feed />}
   </div>
 }

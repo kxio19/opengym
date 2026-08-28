@@ -5,10 +5,10 @@ al final del día, para que `git log` y esta lista no puedan contradecirse.
 
 ## Estado — 28 ago 2026
 
-    Último commit del plan: (se rellena al commitear este trozo)
-    En curso:  nada — racha + Inicio + tarjeta + detalle cerrados y verificados en vivo
+    Último commit del plan: 13923e3 (Inicio, tarjeta y detalle); cierre v1.5.0 aún sin commit
+    En curso:  cierre y verificación integral de la candidata 1.5.0
     Bloqueado: el despliegue de 1.3.3/1.4.0 está a la espera de permiso de Kaio
-    Siguiente: backend — foto, snapshot con título/descripción, Social obligatorio, check de términos
+    Siguiente: autorización de Kaio para commit, push y despliegue
 
 Producción está en `1.3.3-ddf83c0`. Publicados y **sin desplegar**: `1456d2e` (rescate de cuentas
 por el administrador) y `badbc75` (traducción del panel de administración). Esta versión se
@@ -67,14 +67,14 @@ alta automática**. `origin === 'tracked'` sigue excluyendo las importaciones y 
 Estado: `[ ]` pendiente · `[~]` en curso · `[x]` hecha (con el commit que la cierra).
 
 ### Backend
-- [ ] `POST /api/social/photo` — cuerpo binario, solo miembros, tope 1 MB, tipo validado por los bytes de cabecera
-- [ ] `GET /api/social/photo/:id` — exige sesión y pertenencia al grupo
-- [ ] `GET /api/social/post?id=` — una publicación con todos sus comentarios
-- [ ] `workoutSnapshot`: añadir `title`, `desc`, `photoId`
-- [ ] `syncUserState`: borrar del disco la foto de una publicación que deja de existir
-- [ ] `defaultSocialProfile`: `enabled: true`; `requireMember` se mantiene
-- [ ] `PUT /api/social/me` con `purge`: borra publicaciones, no da de baja
-- [ ] Alta: exigir `termsAccepted`, guardar `termsAcceptedAt`
+- [x] `POST /api/social/photo` — cuerpo binario, solo miembros, tope 1 MB, tipo validado por los bytes de cabecera
+- [x] `GET /api/social/photo/:id` — exige sesión y pertenencia al grupo
+- [x] `GET /api/social/post?id=` — una publicación con todos sus comentarios
+- [x] `workoutSnapshot`: añadir `title`, `desc`, `photoId`
+- [x] `syncUserState`: borrar del disco la foto de una publicación que deja de existir
+- [x] `defaultSocialProfile`: `enabled: true`; `requireMember` se mantiene
+- [x] `PUT /api/social/me` con `purge`: borra publicaciones, no da de baja
+- [x] Alta: exigir `termsAccepted`, guardar `termsAcceptedAt`
 
 ### Racha
 - [x] `planStreak(S)` en `frontend/src/lib/history.js` — sustituye a `streakWeeks` (borrado, sin usos fuera de Home/Stats)
@@ -94,25 +94,23 @@ Estado: `[ ]` pendiente · `[~]` en curso · `[x]` hecha (con el commit que la c
 - [x] `components/PostCard.jsx` con carrusel de dos páginas (`scroll-snap`, sin librerías)
 - [x] Sin foto, la primera página es el `BodyMap` con las cifras
 - [x] `views/Post.jsx` en la ruta `/post/:id`, cableada en `App.jsx` y `TabBar.jsx`
-- [x] `GET /api/social/post` — **pendiente aún en el backend**: el frontend ya llama a
-      `socialPost(id)`, pero el endpoint no existe hasta el siguiente trozo. La ruta `/post/:id`
-      no crashea (muestra el estado de carga) mientras tanto.
+- [x] `GET /api/social/post` — detalle autenticado con comentarios, apoyos y estado propio.
 
 ### Fin de entrenamiento
-- [ ] Título (precargado con el nombre de la rutina), descripción y foto
-- [ ] Reescalado con `canvas` antes de subir
-- [ ] «¿Usar esta configuración para las próximas?» → `askFields`
+- [x] Título (precargado con el nombre de la rutina), descripción y foto
+- [x] Reescalado con `canvas` antes de subir
+- [x] «¿Usar esta configuración para las próximas?» → `askFields`
 
 ### Traslados
-- [ ] `Rankings` y `Challenges` → `views/Stats.jsx`
-- [ ] `ProfileSetup` → sección de `views/Settings.jsx`, con «Borrar mis publicaciones»
-- [ ] Borrar `views/Social.jsx` y la ruta `/social`; revisar los enlaces `#/social` de las push
-- [ ] Check obligatorio en el alta de perfil
+- [x] `Rankings` y `Challenges` → `views/Stats.jsx`
+- [x] `ProfileSetup` → sección de `views/Settings.jsx`, con «Borrar mis publicaciones»
+- [x] Borrar `views/Social.jsx` y la ruta `/social`; revisar los enlaces `#/social` de las push
+- [x] Check obligatorio en el alta de perfil
 
 ### Idioma y cierre
-- [ ] Traducir las cadenas nuevas en `frontend/src/locales/es.js`
-- [ ] La auditoría de `t()` contra `es.js` debe volver a dar cero
-- [ ] Subir versión a 1.5.0 y actualizar el README
+- [x] Traducir las cadenas nuevas en `frontend/src/locales/es.js`
+- [x] La auditoría de `t()` contra `es.js` vuelve a dar cero
+- [x] Subir versión a 1.5.0 y actualizar el README
 
 ---
 
@@ -129,9 +127,8 @@ Se anotan aquí en el momento de descubrirlos, no después.
   de consola nuevos. La verificación completa con dos cuentas reales queda para el final, cuando
   el backend ya soporte foto/título/descripción — hacerlo antes habría verificado publicaciones
   a medio construir.
-- Todas las cadenas nuevas de este trozo (p. ej. «Log your weight», «No shared workouts yet…»)
-  se ven en inglés en la app ahora mismo: la traducción a `es.js` es su propia tarea al final
-  («Idioma y cierre»), auditada automáticamente en vez de traducirse una a una sobre la marcha.
+- Todas las cadenas nuevas del Inicio, publicaciones, alta y ajustes están ya en `es.js`; la
+  auditoría de literales `t()` usados contra el diccionario español queda a cero.
 
 ---
 
