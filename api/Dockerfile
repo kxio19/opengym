@@ -22,6 +22,7 @@ RUN npm ci --omit=dev --include=optional \
 COPY server.js ./
 COPY coach/ ./coach/
 COPY social/ ./social/
+COPY auth/ ./auth/
 ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["node", "server.js"]
