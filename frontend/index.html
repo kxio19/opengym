@@ -23,12 +23,55 @@
   .startup-shell__brand{font-size:28px;font-weight:600;letter-spacing:-.03em}
   .startup-shell__status{display:flex;align-items:center;gap:8px;color:rgba(235,235,245,.6);font-size:13px}
   .startup-shell__spinner{width:12px;height:12px;border:1.5px solid rgba(235,235,245,.24);border-top-color:#30d158;border-radius:50%;animation:startup-spin .8s linear infinite}
+  .startup-error{box-sizing:border-box;width:min(100vw,520px);padding:24px;text-align:center}
+  .startup-error h1{margin:0 0 12px;font-size:22px}
+  .startup-error p{margin:8px 0;line-height:1.4}
+  .startup-error__detail{padding:10px;border-radius:8px;background:#1c1c1e;color:#ff9f0a;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+  .startup-error__version{color:rgba(235,235,245,.6);font-size:12px}
+  .startup-error button{margin-top:10px;padding:10px 18px;border:0;border-radius:8px;background:#30d158;color:#000;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
   @keyframes startup-spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){.startup-shell__spinner{animation:none}}
 </style>
 </head>
 <body>
 <div id="root"><div class="startup-shell" role="status" aria-live="polite"><div class="startup-shell__brand">openGym</div><div class="startup-shell__status"><span class="startup-shell__spinner" aria-hidden="true"></span><span>Cargando…</span></div></div></div>
+<script>
+  (() => {
+    const root = document.getElementById('root')
+    let failed = false, timer
+    const text = value => value?.message || String(value || 'Error desconocido')
+    const show = (summary, detail) => {
+      if (failed) return
+      failed = true
+      clearTimeout(timer)
+      root.innerHTML = '<main class="startup-shell startup-error" role="alert" aria-live="assertive"><h1>openGym</h1><p></p><div class="startup-error__detail"></div><p class="startup-error__version">Versión __OPENGYM_VERSION__</p><button type="button" aria-label="Reintentar cargar openGym">Reintentar</button></main>'
+      root.querySelector('p').textContent = summary
+      root.querySelector('.startup-error__detail').textContent = text(detail)
+      root.querySelector('button').addEventListener('click', () => location.reload())
+    }
+    const onError = event => {
+      const target = event.target
+      if (target !== window && target.tagName !== 'SCRIPT' && !(target.tagName === 'LINK' && /^(modulepreload|stylesheet)$/.test(target.rel))) return
+      const resource = target !== window && (target.src || target.href)
+      show('La aplicación no ha podido iniciarse.', event.error || event.message || (resource && `No se pudo cargar ${resource}`))
+    }
+    const onRejection = event => show('La aplicación no ha podido iniciarse.', event.reason)
+    addEventListener('error', onError, true)
+    addEventListener('unhandledrejection', onRejection)
+    // 12 s tolerates slow phones/networks while still turning a genuine hang into useful feedback.
+    timer = setTimeout(() => show('La aplicación parece haberse quedado bloqueada al iniciar.', 'El arranque no terminó en 12 segundos.'), 12000)
+    window.__openGymBoot = {
+      fail: error => show('La aplicación no ha podido iniciarse.', error),
+      mounted: () => {
+        if (failed) return
+        clearTimeout(timer)
+        removeEventListener('error', onError, true)
+        removeEventListener('unhandledrejection', onRejection)
+        delete window.__openGymBoot
+      }
+    }
+  })()
+</script>
 <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

@@ -1,8 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { readFileSync } from 'node:fs'
 
 const backend = process.env.API_TARGET || 'http://127.0.0.1:3000'
 const media = process.env.MEDIA_TARGET || 'http://127.0.0.1:8888'
+const appVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
+
+function injectAppVersion() {
+  return {
+    name: 'inject-app-version',
+    transformIndexHtml: html => html.replaceAll('__OPENGYM_VERSION__', appVersion)
+  }
+}
 
 function preloadSpanishStartupChunks() {
   const startupModules = ['/src/locales/es.js']
@@ -40,7 +49,7 @@ function preloadSpanishStartupChunks() {
 }
 
 export default defineConfig({
-  plugins: [react(), preloadSpanishStartupChunks()],
+  plugins: [react(), injectAppVersion(), preloadSpanishStartupChunks()],
   base: './',
   server: {
     proxy: {
