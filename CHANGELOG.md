@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Private group presentation (KaioHUB fork)
+
+- Added a public Spanish presentation at `/amigos/` with privacy-safe screenshots,
+  an interactive weekly podium, challenge examples and a plain-language explanation
+  of Social privacy and invite-only access.
+
 ### The AI Coach
 
 openGym could always progress a plan. It could never *write* one, and it never looked at the
