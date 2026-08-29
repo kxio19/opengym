@@ -2,7 +2,7 @@
 // src/locales/ map them to translations and are lazy-loaded (Vite code-splits each
 // import.meta.glob entry), so the initial bundle stays English-only.
 // Exercise instructions come from separately generated packs in src/instr/ (one per
-// language, from the upstream dataset) — also lazy-loaded on language switch.
+// language, from the upstream dataset) — loaded after the UI locale so they never block paint.
 import { useSyncExternalStore } from 'react'
 
 // UI languages. de/pt have no instruction pack upstream — instructions fall back to English.
@@ -23,6 +23,7 @@ const instrPacks = import.meta.glob('../instr/*.js')
 let lang = 'es'
 let dict = {}
 let instr = null            // { exId: [steps] } for the current language, null = English
+let langRequest = 0         // discards locale/instruction results from stale language switches
 let version = 0
 const subs = new Set()
 const notify = () => { version++; subs.forEach(f => f()) }
@@ -39,15 +40,34 @@ export function t(s, ...args) {
 // Instructions for an exercise in the current language (English steps as fallback).
 export const instrFor = ex => (instr && instr[ex.id]) || ex.st || []
 
+async function loadInstr(l, request) {
+  try {
+    const nextInstr = (await instrPacks['../instr/' + l + '.js']()).default
+    if (request !== langRequest || l !== lang) return
+    instr = nextInstr
+    notify()
+  } catch { /* English exercise text remains the fallback. */ }
+}
+
 export async function setLang(l) {
   if (!LANGS[l]) l = 'es'
   if (l === lang && version > 0) return
+  const request = ++langRequest
   lang = l
+  instr = null
+  let nextDict
   try {
-    dict = l === 'en' ? {} : (await localePacks['../locales/' + l + '.js']()).default
-    instr = l === 'en' || !INSTR_LANGS.includes(l) ? null : (await instrPacks['../instr/' + l + '.js']()).default
-  } catch (e) { dict = {}; instr = null }
+    nextDict = l === 'en' ? {} : (await localePacks['../locales/' + l + '.js']()).default
+  } catch (e) {
+    if (request !== langRequest || l !== lang) return
+    dict = {}
+    notify()
+    return
+  }
+  if (request !== langRequest || l !== lang) return
+  dict = nextDict
   notify()
+  if (l !== 'en' && INSTR_LANGS.includes(l)) void loadInstr(l, request)
 }
 
 // Re-renders the subscribing component (and its children) whenever the language changes.
