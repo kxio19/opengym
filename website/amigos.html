@@ -15,6 +15,7 @@
   <meta property="og:url" content="https://gym.kaiohub.dev/amigos/">
   <link rel="canonical" href="https://gym.kaiohub.dev/amigos/">
   <link rel="icon" href="amigos-assets/icon.png">
+  <link rel="preload" as="image" href="amigos-assets/inicio.png" fetchpriority="high">
   <link rel="stylesheet" href="amigos.css">
 </head>
 <body>
@@ -55,7 +56,7 @@
         <div class="glow"></div>
         <div class="phone main-phone">
           <div class="speaker"></div>
-          <img src="amigos-assets/inicio.png" alt="Pantalla de inicio de OpenGym en español con calendario semanal" width="390" height="844">
+          <img src="amigos-assets/inicio.png" alt="Pantalla de inicio de OpenGym en español con calendario semanal" width="390" height="844" fetchpriority="high" decoding="async">
         </div>
         <aside class="float-card float-one">
           <span class="float-icon">🏆</span>
@@ -87,15 +88,15 @@
       <div class="feature-showcase">
         <article class="screen-card">
           <div class="screen-copy"><span class="step">01</span><h3>Tu semana, clara</h3><p>Asigna una rutina a cada día y cambia el plan cuando la vida se cruza.</p></div>
-          <div class="phone small-phone"><img src="amigos-assets/plan.png" alt="Plan semanal con días de empuje, tirón y piernas" width="390" height="844" loading="lazy"></div>
+          <div class="phone small-phone"><img decoding="async" src="amigos-assets/plan.png" alt="Plan semanal con días de empuje, tirón y piernas" width="390" height="844" loading="lazy"></div>
         </article>
         <article class="screen-card featured">
           <div class="screen-copy"><span class="step">02</span><h3>Entrena sin pensar en la app</h3><p>Series, repeticiones, peso, descanso y marcas personales en una sola pantalla.</p></div>
-          <div class="phone small-phone"><img src="amigos-assets/entrenamiento.png" alt="Entrenamiento guiado de press de banca con series y repeticiones" width="390" height="844" loading="lazy"></div>
+          <div class="phone small-phone"><img decoding="async" src="amigos-assets/entrenamiento.png" alt="Entrenamiento guiado de press de banca con series y repeticiones" width="390" height="844" loading="lazy"></div>
         </article>
         <article class="screen-card">
           <div class="screen-copy"><span class="step">03</span><h3>Ve lo que mejora</h3><p>Actividad, rachas, peso corporal y evolución por ejercicio, sin adornos.</p></div>
-          <div class="phone small-phone"><img src="amigos-assets/progreso.png" alt="Pantalla de progreso con actividad, racha y evolución corporal" width="390" height="844" loading="lazy"></div>
+          <div class="phone small-phone"><img decoding="async" src="amigos-assets/progreso.png" alt="Pantalla de progreso con actividad, racha y evolución corporal" width="390" height="844" loading="lazy"></div>
         </article>
       </div>
     </section>
