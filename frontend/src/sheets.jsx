@@ -22,6 +22,7 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLIC
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { SOCIAL_FIELD_DEFAULTS, socialMe, saveSocialMe, savePostSettings, uploadSocialPhoto } from './lib/social-api.js'
 import { resizeSocialPhoto } from './lib/social-photo.js'
+import { uploadExercisePhoto, deleteExercisePhoto, exercisePhotoSrc } from './lib/social-api.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -349,19 +350,46 @@ function CustomExForm({ existing, prefill, onDone, close }) {
   const [n, setN] = useState(existing ? existing.n : (prefill || ''))
   const [bp, setBp] = useState(existing ? existing.bp : '')
   const [desc, setDesc] = useState(existing ? (existing.desc || '') : '')
-  const save = () => {
+  // A catalogue exercise has an animation; your own has whatever photo you give it. Kept as a
+  // server-side id rather than inline data: the state syncs whole on every save, so an image
+  // living in it would be re-uploaded for the rest of the profile's life.
+  const [photo, setPhoto] = useState(null)              // { blob, preview } — chosen, not uploaded yet
+  const [removePhoto, setRemovePhoto] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const currentPhoto = existing ? existing.photo || '' : ''
+  useEffect(() => () => { if (photo?.preview) URL.revokeObjectURL(photo.preview) }, [photo?.preview])
+  const choosePhoto = async event => {
+    const file = event.target.files?.[0]; event.target.value = ''; if (!file) return
+    setPhotoBusy(true)
+    // Same resizer the group photos use: phone pictures are 4-12 MB and the server caps at 1.
+    try { const blob = await resizeSocialPhoto(file); setPhoto({ blob, preview: URL.createObjectURL(blob) }); setRemovePhoto(false) }
+    catch (e) { toast(t(e.message)) } finally { setPhotoBusy(false) }
+  }
+  const save = async () => {
     const name = n.trim()
     if (!name) { toast(t('Give it a name')); return }
     if (!bp) { toast(t('Pick a body part')); return }
     const dup = allExercises(S()).find(e => e.n.toLowerCase() === name.toLowerCase() && e.id !== (existing || {}).id)
     if (dup) { toast(t('“{0}” already exists', dup.n)); return }
     const d = desc.trim().slice(0, 1000)
+    // Upload before touching the state: if it fails, nothing has changed and the user can retry
+    // with the photo still selected, instead of ending up with an exercise pointing at nothing.
+    let photoId = removePhoto ? '' : currentPhoto
+    if (photo?.blob) {
+      setPhotoBusy(true)
+      try { photoId = await uploadExercisePhoto(photo.blob) }
+      catch (e) { toast(t(e.message)); setPhotoBusy(false); return }
+      setPhotoBusy(false)
+    }
+    // The old file is only unlinked once the new id is safely stored.
+    const stale = currentPhoto && currentPhoto !== photoId ? currentPhoto : ''
     let id = existing && existing.id
-    if (existing) update(s => { const c = (s.customEx || []).find(x => x.id === id); if (c) { c.n = name; c.bp = bp; c.desc = d } })
+    if (existing) update(s => { const c = (s.customEx || []).find(x => x.id === id); if (c) { c.n = name; c.bp = bp; c.desc = d; c.photo = photoId || undefined } })
     else {
       id = 'c' + uid()
-      update(s => { (s.customEx = s.customEx || []).push({ id, n: name, bp, desc: d, tg: '', eq: 'custom', custom: true }) })
+      update(s => { (s.customEx = s.customEx || []).push({ id, n: name, bp, desc: d, photo: photoId || undefined, tg: '', eq: 'custom', custom: true }) })
     }
+    if (stale) deleteExercisePhoto(stale)
     close()
     toast(existing ? t('Saved') : t('“{0}” created', name))
     onDone && onDone(EXIDX[id])
@@ -376,8 +404,16 @@ function CustomExForm({ existing, prefill, onDone, close }) {
     {bp === 'cardio' && <div className="small dim row" style={{ marginBottom: 10, gap: 5 }}><Icon name="figureRun" style={{ fontSize: 13 }} />{t('Cardio exercises log time + speed instead of weight × reps.')}</div>}
     <textarea className="input" rows={4} maxLength={1000} placeholder={t('Description (optional) — setup, cues, anything you want to remember')}
       value={desc} onChange={e => setDesc(e.target.value)} />
+    {(photo?.preview || (currentPhoto && !removePhoto)) && <div className="post-photo-preview">
+      <img src={photo?.preview || exercisePhotoSrc(currentPhoto)} alt="" />
+      <button type="button" className="iconbtn" onClick={() => { setPhoto(null); setRemovePhoto(true) }} aria-label={t('Remove image')}><Icon name="xmark" /></button>
+    </div>}
+    {!photo && (!currentPhoto || removePhoto) && <label className="btn" style={{ marginTop: 10, cursor: 'pointer' }}>
+      <Icon name="camera" />{photoBusy ? t('Preparing image…') : t('Add an image')}
+      <input type="file" accept="image/jpeg,image/png" hidden onChange={choosePhoto} />
+    </label>}
     <div style={{ height: 14 }} />
-    <Button variant="primary" onClick={save}>{existing ? t('Save') : t('Create exercise')}</Button>
+    <Button variant="primary" disabled={photoBusy} onClick={save}>{existing ? t('Save') : t('Create exercise')}</Button>
     {existing && <><div style={{ height: 8 }} /><Button variant="danger" icon="trash" onClick={() => { close(); deleteCustomEx(existing) }}>{t('Delete exercise')}</Button></>}
   </>
 }
@@ -397,6 +433,9 @@ export function deleteCustomEx(ex, afterDelete) {
         s.workouts.forEach(w => w.entries.forEach(e => { if (e.id === ex.id) e.n = ex.n }))
         delete s.exWeights[ex.id]
       })
+      // Nothing else on the server knows this file stopped being referenced, so say so here
+      // or the directory grows forever. Best-effort: the exercise is already gone either way.
+      if (ex.photo) deleteExercisePhoto(ex.photo)
       toast(t('Exercise deleted'))
       afterDelete && afterDelete()
     }

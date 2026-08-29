@@ -58,6 +58,12 @@ self.addEventListener('notificationclick', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url)
   if (e.request.method !== 'GET' || url.origin !== location.origin) return
+  const isExercisePhoto = /^\/api\/exercise-photo\/[^/]+$/.test(url.pathname)
+  if (isExercisePhoto) {
+    // Cache by immutable id on this single-user device; network requests retain credentials when needed.
+    e.respondWith(cacheFirst(e.request, RUNTIME_CACHE))
+    return
+  }
   if (url.pathname.startsWith('/api/')) return    // never cache auth/data
 
   const isMedia = url.pathname.includes('/img/') || url.pathname.includes('/gif/')

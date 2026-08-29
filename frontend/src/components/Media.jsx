@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { imgSrc, gifSrc } from '../lib/exercises.js'
+import { exercisePhotoSrc } from '../lib/social-api.js'
 import { useStore } from '../store/useStore.js'
 import { t } from '../lib/i18n.js'
 import Icon from './Icon.jsx'
@@ -13,7 +14,14 @@ export default function Media({ ex, id, compact, minimizable }) {
   const [playing, setPlaying] = useState(true)
   const gifSize = useStore(s => s.S.gifSize)
   const update = useStore(s => s.update)
-  if (!ex.gif) return null
+  // Your own exercise has no animation, but it may have a photo you added. A still image gets
+  // no play/pause control — there is nothing to play.
+  if (!ex.gif) {
+    if (!ex.photo) return null
+    return <div className={'exmedia still' + (compact ? ' compact' : '')} id={id}>
+      <img decoding="async" src={exercisePhotoSrc(ex.photo)} alt={ex.n} />
+    </div>
+  }
   const mini = minimizable && gifSize === 'mini'
   const toggleSize = e => { e.stopPropagation(); update(s => { s.gifSize = mini ? 'full' : 'mini' }) }
   return (
@@ -34,6 +42,9 @@ export default function Media({ ex, id, compact, minimizable }) {
 }
 
 export function Thumb({ ex }) {
-  if (!ex.img) return <div className="thumb thumb-x"><Icon name="dumbbell" /></div>
+  if (!ex.img) {
+    if (ex.photo) return <img className="thumb" loading="lazy" decoding="async" src={exercisePhotoSrc(ex.photo)} alt="" />
+    return <div className="thumb thumb-x"><Icon name="dumbbell" /></div>
+  }
   return <img className="thumb" loading="lazy" decoding="async" src={imgSrc(ex)} alt="" />
 }

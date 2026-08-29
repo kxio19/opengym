@@ -70,7 +70,15 @@ db.subs = db.subs || [];
 db.invites = db.invites || [];
 db.adminActions = db.adminActions || [];
 db.suggestions = db.suggestions || [];
+db.exercisePhotoOwners = db.exercisePhotoOwners || {};
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
+
+// Exercise photos are deliberately independent from Social: they remain available when Social is
+// disabled and cannot be removed as a side effect of deleting a social post. The whole dataDir is
+// already backed up, so keeping this directory alongside social-photos needs no backup exception.
+const EXERCISE_PHOTO_ID = /^[a-f0-9-]{20,40}\.(jpg|png)$/;
+const exercisePhotosDir = path.join(DATA, 'exercise-photos');
+fs.mkdirSync(exercisePhotosDir, { recursive: true });
 
 // An admin who can hand someone a way back into their account can also sign in as them. That is
 // a real power, so it is written down — and publicUser hands the timestamp back to the person it
@@ -388,6 +396,7 @@ function rateRule(key) {
   if (key === 'POST /api/social/comments/new') return { max: 5, ms: 60000 };
   if (key === 'POST /api/suggestions') return { max: 5, ms: 60000 };
   if (key === 'POST /api/social/challenges/new') return { max: 10, ms: 86400000 };
+  if (key === 'POST /api/exercise-photo') return { max: 30, ms: 60000 };
   if (key.startsWith('POST /api/social/') || key === 'PUT /api/social/me') return { max: 30, ms: 60000 };
   if (key.startsWith('GET /api/social/')) return { max: 120, ms: 60000 };
   return null;
@@ -421,6 +430,46 @@ const routes = {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     json(res, 200, { user: publicUser(user) });
+  },
+
+  'POST /api/exercise-photo': async (req, res) => {
+    const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
+    const image = await readRawBody(req, 1024 * 1024);
+    const jpeg = image.length >= 3 && image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff;
+    const png = image.length >= 8 && image.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    if (!jpeg && !png) return json(res, 415, { error: 'only JPEG and PNG images are accepted' });
+    const id = `${crypto.randomUUID()}.${jpeg ? 'jpg' : 'png'}`;
+    fs.writeFileSync(path.join(exercisePhotosDir, id), image, { mode: 0o600, flag: 'wx' });
+    db.exercisePhotoOwners[id] = user.id;
+    saveDb();
+    json(res, 200, { id });
+  },
+
+  'GET /api/exercise-photo/:id': async (req, res) => {
+    const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
+    let id;
+    try { id = decodeURIComponent(new URL(req.url, 'http://x').pathname.slice('/api/exercise-photo/'.length)); }
+    catch { return json(res, 404, { error: 'photo not found' }); }
+    if (!EXERCISE_PHOTO_ID.test(id) || db.exercisePhotoOwners[id] !== user.id) return json(res, 404, { error: 'photo not found' });
+    let image;
+    try { image = fs.readFileSync(path.join(exercisePhotosDir, id)); } catch { return json(res, 404, { error: 'photo not found' }); }
+    res.writeHead(200, { 'Content-Type': id.endsWith('.png') ? 'image/png' : 'image/jpeg', 'Content-Length': image.length, 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' });
+    res.end(image);
+  },
+
+  // The client calls this when a custom exercise is deleted or its image is replaced; making
+  // deletion owner-only prevents cleanup from becoming a way to remove another user's photo.
+  'DELETE /api/exercise-photo/:id': async (req, res) => {
+    const user = readSession(req); if (!user) return json(res, 401, { error: 'not signed in' });
+    let id;
+    try { id = decodeURIComponent(new URL(req.url, 'http://x').pathname.slice('/api/exercise-photo/'.length)); }
+    catch { return json(res, 404, { error: 'photo not found' }); }
+    if (!EXERCISE_PHOTO_ID.test(id) || db.exercisePhotoOwners[id] !== user.id) return json(res, 404, { error: 'photo not found' });
+    try { fs.unlinkSync(path.join(exercisePhotosDir, id)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    delete db.exercisePhotoOwners[id];
+    saveDb();
+    json(res, 200, { ok: true, id });
   },
 
   'POST /api/password/register': async (req, res) => {
@@ -1087,7 +1136,10 @@ startCadence({ users: () => db.users.filter(user => !user.pending), userNow });
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const key = req.method + ' ' + url.pathname;
-  const handler = routes[key] || (req.method === 'GET' && url.pathname.startsWith('/api/social/photo/') ? routes['GET /api/social/photo/:id'] : null);
+  const handler = routes[key]
+    || (req.method === 'GET' && url.pathname.startsWith('/api/social/photo/') ? routes['GET /api/social/photo/:id'] : null)
+    || (req.method === 'GET' && url.pathname.startsWith('/api/exercise-photo/') ? routes['GET /api/exercise-photo/:id'] : null)
+    || (req.method === 'DELETE' && url.pathname.startsWith('/api/exercise-photo/') ? routes['DELETE /api/exercise-photo/:id'] : null);
   if (!handler) return json(res, 404, { error: 'not found' });
   const rate = rateAllowed(req, key);
   if (!rate.ok) return json(res, 429, { error: 'too many requests' }, { 'Retry-After': String(rate.retryAfter) });

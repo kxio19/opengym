@@ -549,6 +549,11 @@ body.kb-open #tabbar{display:none}
 .wprog i{display:block;height:100%;background:var(--acc);border-radius:99px;transition:width var(--med) var(--ease)}
 .exmedia{position:relative;border-radius:var(--r-lg);overflow:hidden;background:#fff;margin-bottom:12px}
 .exmedia img{width:100%;height:320px;object-fit:contain;display:block}
+/* A photo you added to your own exercise, not a catalogue animation. Those need the white
+   backdrop they were drawn on; a phone photo does not, so it fills the frame on the app's own
+   surface instead of sitting letterboxed in a white box. */
+.exmedia.still{background:var(--surface-2)}
+.exmedia.still img{height:240px;object-fit:cover}
 .exmedia .gifhint,.exmedia .giftoggle{
   position:absolute;bottom:9px;display:inline-flex;align-items:center;gap:4px;
   background:rgba(0,0,0,.45);color:#fff;border-radius:99px;padding:5px 11px;
