@@ -154,14 +154,14 @@ export default function Settings() {
         value={S.restSec} onChange={v => update(s => { s.restSec = v })}
         options={[60, 90, 120, 150, 180].map(v => ({ value: v, label: v + 's' }))} />
       {(wakeOK || !MOBILE) && (
-        <Row icon="sun" iconTint="var(--yellow)" title={t('Keep screen awake')}
+        <Row icon="sun" iconTint="var(--yellow)" title={t('Keep screen awake')} titleId="keep-screen-awake-label"
           subtitle={wakeOK ? null : t('Not supported in this browser.')}>
-          <Switch checked={wakeOK && S.keepAwake !== false} disabled={!wakeOK}
+          <Switch checked={wakeOK && S.keepAwake !== false} disabled={!wakeOK} aria-labelledby="keep-screen-awake-label"
             onChange={v => update(s => { s.keepAwake = v })} />
         </Row>
       )}
-      <Row icon="bell" iconTint="var(--pink)" title={t('Sounds')}>
-        <Switch checked={!!S.sound} onChange={v => update(s => { s.sound = v })} />
+      <Row icon="bell" iconTint="var(--pink)" title={t('Sounds')} titleId="sounds-label">
+        <Switch checked={!!S.sound} onChange={v => update(s => { s.sound = v })} aria-labelledby="sounds-label" />
       </Row>
       {/* Two names for the same judgement, so the column asks in the scale you already think in.
           The (i) sits before the control — you read it on the way to the choice, not after it. */}
@@ -218,18 +218,18 @@ export default function Settings() {
     {/* ---------- data: fill it, bring things over, back it up, wipe it ---------- */}
     <Section title={t('Data')}>
       <Row icon="sparkles" iconTint="var(--acc)" title={t('Load starter plan (PPL)')} accessory="chevron" onClick={loadStarterPlan} />
-      <Row icon="shuffle" iconTint="var(--teal)" title={t('Import from another app')}
+      <Row icon="shuffle" iconTint="var(--teal)" title={t('Import from another app')} titleId="import-from-app-label"
         subtitle={t('FitNotes, Strong, Hevy — or body weight from Apple Health')}
         accessory="chevron" onClick={() => importRef.current.click()} />
-      <Row icon="upload" iconTint="var(--blue)" title={t('Import backup')} accessory="chevron" onClick={() => fileRef.current.click()} />
+      <Row icon="upload" iconTint="var(--blue)" title={t('Import backup')} titleId="import-backup-label" accessory="chevron" onClick={() => fileRef.current.click()} />
       <Row icon="download" iconTint="var(--blue)" title={t('Export backup (JSON)')} accessory="chevron" onClick={doExport} />
       {/* Also drops anything the Coach is holding server-side: a wipe that leaves a pending
           proposal on the server behind would be a wipe in name only. */}
       <Row icon="trash" iconTint="var(--red)" title={t('Reset everything')} danger onClick={() => confirmSheet({ title: t('Reset everything?'), message: t('Deletes your plan, workouts and body weight on this device. This cannot be undone.'), confirmText: t('Delete everything'), danger: true, onConfirm: () => { if (user) forgetCoach().catch(() => {}); replaceState(JSON.parse(JSON.stringify(DEF)), true); nav('/home'); toast(t('All data reset')) } })} />
     </Section>
-    <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={doImport} />
+    <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={doImport} aria-labelledby="import-backup-label" />
     {/* Reset after reading so picking the same file twice still fires onChange. */}
-    <input ref={importRef} type="file" accept=".csv,.xml,text/csv,text/xml" style={{ display: 'none' }}
+    <input ref={importRef} type="file" accept=".csv,.xml,text/csv,text/xml" style={{ display: 'none' }} aria-labelledby="import-from-app-label"
       onChange={ev => { const f = ev.target.files[0]; if (f) importFromApp(f); ev.target.value = '' }} />
 
     {/* "Add to Home screen" makes no sense inside the native app */}
@@ -303,12 +303,12 @@ function MobileReminderCard({ S, update, toast }) {
   return (
     <Section title={t('Notifications')}
       footer={S.reminder?.on ? t('Reminds you at this time on days that have a routine planned.') : null}>
-      <Row icon="calendar" iconTint="var(--orange)" title={t('Workout day reminder')}>
-        <Switch checked={!!S.reminder?.on} onChange={toggle} />
+      <Row icon="calendar" iconTint="var(--orange)" title={t('Workout day reminder')} titleId="mobile-workout-reminder-label">
+        <Switch checked={!!S.reminder?.on} onChange={toggle} aria-labelledby="mobile-workout-reminder-label" />
       </Row>
       {S.reminder?.on && (
-        <Row icon="clock" iconTint="var(--purple)" title={t('Reminder time')}>
-          <input type="time" className="timef" value={S.reminder?.time || DEF.reminder.time}
+        <Row icon="clock" iconTint="var(--purple)" title={t('Reminder time')} titleId="mobile-reminder-time-label">
+          <input type="time" className="timef" value={S.reminder?.time || DEF.reminder.time} aria-labelledby="mobile-reminder-time-label"
             onChange={e => setReminder({ time: e.target.value })} />
         </Row>
       )}
@@ -353,17 +353,17 @@ function PushCard({ S, update, toast }) {
           (S.reminder?.tz ? ' ' + t('Timezone: {0} (auto-detected, updates if you travel).', S.reminder.tz) : '')
         : null}
     >
-      <Row icon="bell" iconTint="var(--red)" title={t('Push notifications')} subtitle={t('Rest-timer alerts, even if openGym is closed.')}>
-        <Switch checked={on} disabled={busy} onChange={toggle} />
+      <Row icon="bell" iconTint="var(--red)" title={t('Push notifications')} titleId="push-notifications-label" subtitle={t('Rest-timer alerts, even if openGym is closed.')}>
+        <Switch checked={on} disabled={busy} onChange={toggle} aria-labelledby="push-notifications-label" />
       </Row>
       {on && (
-        <Row icon="calendar" iconTint="var(--orange)" title={t('Workout day reminder')}>
-          <Switch checked={!!S.reminder?.on} onChange={() => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), on: !s.reminder?.on, tz: localTZ() } })} />
+        <Row icon="calendar" iconTint="var(--orange)" title={t('Workout day reminder')} titleId="web-workout-reminder-label">
+          <Switch checked={!!S.reminder?.on} aria-labelledby="web-workout-reminder-label" onChange={() => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), on: !s.reminder?.on, tz: localTZ() } })} />
         </Row>
       )}
       {on && S.reminder?.on && (
-        <Row icon="clock" iconTint="var(--purple)" title={t('Reminder time')}>
-          <input type="time" className="timef" value={S.reminder?.time || DEF.reminder.time}
+        <Row icon="clock" iconTint="var(--purple)" title={t('Reminder time')} titleId="web-reminder-time-label">
+          <input type="time" className="timef" value={S.reminder?.time || DEF.reminder.time} aria-labelledby="web-reminder-time-label"
             onChange={e => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), time: e.target.value, tz: localTZ() } })} />
         </Row>
       )}
@@ -410,7 +410,7 @@ function RegisterInline({ close, setUser, pushState, pullState, toast, inviteOnl
     {inviteOnly && <>
       <div style={{ height: 10 }} /><TextField value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder={t('Invite code')} maxLength={40} />
     </>}
-    <div className="social-toggle" style={{ marginTop: 14 }}><div><b>{t('Private training group')}</b><div className="small muted">{t('I understand that my profile belongs to this private group. I choose what each workout publishes; imported and previous history stays private.')}</div></div><Switch checked={termsAccepted} onChange={setTermsAccepted} /></div>
+    <div className="social-toggle" style={{ marginTop: 14 }}><div><b id="settings-private-group-label">{t('Private training group')}</b><div className="small muted">{t('I understand that my profile belongs to this private group. I choose what each workout publishes; imported and previous history stays private.')}</div></div><Switch checked={termsAccepted} onChange={setTermsAccepted} aria-labelledby="settings-private-group-label" /></div>
     <div style={{ height: 12 }} /><Button variant="primary" disabled={!termsAccepted} onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
   </>
 }

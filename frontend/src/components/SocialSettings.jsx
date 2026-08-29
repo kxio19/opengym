@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS } from '../lib/format.js'
@@ -14,7 +14,8 @@ const fieldLabels = {
 }
 
 function Toggle({ label, detail, checked, onChange, disabled }) {
-  return <div className="social-toggle"><div><div>{label}</div>{detail && <div className="small muted">{detail}</div>}</div><Switch checked={checked} disabled={disabled} onChange={onChange} /></div>
+  const labelId = useId()
+  return <div className="social-toggle"><div><div id={labelId}>{label}</div>{detail && <div className="small muted">{detail}</div>}</div><Switch checked={checked} disabled={disabled} onChange={onChange} aria-labelledby={labelId} /></div>
 }
 
 export default function SocialSettings() {
@@ -48,8 +49,8 @@ export default function SocialSettings() {
     <h4 className="sect-t">{t('Social and privacy')}</h4>
     <div className="card">
       <div className="row" style={{ gap: 9, marginBottom: 14 }}><Icon name="personCircle" style={{ color: 'var(--acc)', fontSize: 24 }} /><div><b>{t('Private training group')}</b><div className="small muted">{t('Only invited members can see shared workouts. Imported and previous history stays private.')}</div></div></div>
-      <label className="field-label">{t('Display name')}</label>
-      <TextField maxLength={40} value={draft.displayName} onChange={e => setDraft(d => ({ ...d, displayName: e.target.value }))} />
+      <label className="field-label" id="social-display-name-label">{t('Display name')}</label>
+      <TextField aria-labelledby="social-display-name-label" maxLength={40} value={draft.displayName} onChange={e => setDraft(d => ({ ...d, displayName: e.target.value }))} />
       <label className="field-label">{t('Short bio')}</label>
       <TextArea rows={2} maxLength={120} value={draft.bio || ''} onChange={e => setDraft(d => ({ ...d, bio: e.target.value }))} />
       <div className="field-label">{t('Profile color')}</div>

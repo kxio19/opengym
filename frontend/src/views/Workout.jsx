@@ -33,10 +33,10 @@ function StartChooser() {
       <Button variant="primary" icon="play" onClick={() => startFlow(todayR.id)}>{t('Start {0}', todayR.name)}</Button>
     </div>}
     {others.length > 0 && <><h4 className="sec">{t('Other routines')}</h4>
-      <div className="list">{others.map(r => <div key={r.id} className="item" onClick={() => startFlow(r.id)}>
+      <div className="list">{others.map(r => <button type="button" key={r.id} className="item" onClick={() => startFlow(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-        <span className="tag acc">{t('Start')}</span></div>)}</div></>}
+        <span className="tag acc">{t('Start')}</span></button>)}</div></>}
     <div style={{ height: 14 }} />
     <Button icon="shuffle" onClick={() => startFlow(null)}>{t('Freestyle workout (pick as you go)')}</Button>
     {!S.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}
@@ -87,6 +87,12 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     if (col.eff) return onField(i, col.f, stepEffort(col.eff, s[col.f], dir))
     onField(i, col.f, Math.max(0, Math.round(((s[col.f] || 0) + dir * col.step) * 100) / 100))
   }
+  const fieldLabel = (col, i) => col.f === 'w' ? t('Weight, set {0}', i + 1)
+    : col.f === 'r' ? t('Repetitions, set {0}', i + 1)
+      : col.f === 'min' ? t('Duration, set {0}', i + 1)
+        : col.f === 'speed' ? t('Speed, set {0}', i + 1)
+          : col.f === 'sec' ? t('Seconds, set {0}', i + 1)
+            : col.eff === 'rir' ? t('RIR, set {0}', i + 1) : t('RPE, set {0}', i + 1)
   // Uses the shared stepper markup so a set row picks up the same control styling
   // as every other +/- field in the app.
   const cell = (s, i, col, cls) => (
@@ -94,7 +100,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       <button aria-label={t('Decrease')} onClick={() => bump(s, i, col, -1)}><Icon name="minus" /></button>
       {/* a typed effort is capped — there is no RPE 12, and 12 reps in reserve is a warm-up */}
       <span className="val"><NumberField decimal={col.dec} nullable={col.opt} value={s[col.f] ?? ''}
-        onChange={v => onField(i, col.f, col.eff ? capEffort(col.eff, v) : v)} /></span>
+        aria-label={fieldLabel(col, i)} onChange={v => onField(i, col.f, col.eff ? capEffort(col.eff, v) : v)} /></span>
       <button aria-label={t('Increase')} onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>
     </div>
   )
@@ -127,7 +133,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
             set off itself. The checkbox stays for anyone who timed it on their own watch. */}
         {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
           onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
-        <Check checked={s.done} onChange={() => onToggle(i)} />
+        <Check checked={s.done} onChange={() => onToggle(i)} aria-label={t('Set {0} done', i + 1)} />
       </div>)}
       <div style={{ height: 8 }} />
       <div className="row">

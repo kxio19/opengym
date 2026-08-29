@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { t, dateLocale } from '../lib/i18n.js'
-import { fmtVol, ACCENTS } from '../lib/format.js'
+import { fmtVol, setCount, ACCENTS } from '../lib/format.js'
 import { socialPost, toggleKudos, addComment, deleteComment } from '../lib/social-api.js'
 import { photoUrl, postLoad } from '../components/PostCard.jsx'
 import Icon from '../components/Icon.jsx'
@@ -69,7 +69,7 @@ export default function Post() {
       <BodyMap load={postLoad(post)} body="male" />
       <div className="list" style={{ marginTop: 6 }}>{post.entries.map(e => <div className="social-entry" key={e.id}>
         <b>{e.name}</b>
-        {e.sets?.length ? <span>{e.sets.map(s => `${s.weight}×${s.reps}`).join(' · ')}</span> : e.setCount ? <span>{t('{0} sets', e.setCount)}</span> : null}
+        {e.sets?.length ? <span>{e.sets.map(s => `${s.weight}×${s.reps}`).join(' · ')}</span> : e.setCount ? <span>{setCount(e.setCount)}</span> : null}
       </div>)}</div>
     </>}
 

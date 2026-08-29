@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, allExercises, equipmentOf } from './lib/exercises.js'
-import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
+import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, setCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
 import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
 import { t, instrFor, getLang, INSTR_LANGS } from './lib/i18n.js'
@@ -77,8 +77,8 @@ function WeightInput({ value, setValue, unit }) {
     </div>
     <div className="chips" style={{ justifyContent: 'center', margin: '8px 0' }}>
       <button className="chip" onClick={() => onSlide(value - 1)}>−1</button>
-      <button className="chip" onClick={() => onSlide(value - 0.5)}>−0.5</button>
-      <button className="chip" onClick={() => onSlide(value + 0.5)}>+0.5</button>
+      <button className="chip" onClick={() => onSlide(value - 0.5)}>−{fmtNum(0.5)}</button>
+      <button className="chip" onClick={() => onSlide(value + 0.5)}>+{fmtNum(0.5)}</button>
       <button className="chip" onClick={() => onSlide(value + 1)}>+1</button>
     </div>
     <Slider value={sv} min={W_LO} max={W_HI} step={0.5} onChange={onSlide} />
@@ -144,14 +144,15 @@ function ImportSummary({ parsed, close }) {
     ? parsed.bodyweight.filter(b => st.bodyweight.some(x => x.d === b.d)).length
     : parsed.workouts.filter(w => st.workouts.some(x => x.d === w.d)).length
   const fresh = (isBW ? parsed.bodyweight.length : parsed.workouts.length) - have
+  const effortSets = parsed.rirSets || parsed.rpeSets
 
   const doImport = () => {
     let res
     update(s => { res = mergeImport(s, parsed) })
     close()
     toast(isBW
-      ? t('{0} weigh-ins imported', res.added)
-      : t('{0} workouts imported', res.added))
+      ? t(res.added === 1 ? '{0} weigh-in imported' : '{0} weigh-ins imported', res.added)
+      : t(res.added === 1 ? '{0} workout imported' : '{0} workouts imported', res.added))
   }
 
   return <>
@@ -181,15 +182,15 @@ function ImportSummary({ parsed, close }) {
       {t('The file does not say which unit it uses — numbers are imported as they are.')}
     </div>}
     {have > 0 && <div className="small dim" style={{ marginBottom: 10 }}>
-      {t('{0} days already have data here and will be left alone.', have)}
+      {t(have === 1 ? '{0} day already has data here and will be left alone.' : '{0} days already have data here and will be left alone.', have)}
     </div>}
     {/* The file rated its sets. Say so: the column is off by default, so the ratings would
         otherwise arrive invisibly and look like they had been dropped. */}
-    {!isBW && (parsed.rirSets + parsed.rpeSets) > 0 && <div className="small dim" style={{ marginBottom: 10 }}>
-      {t(effortOf(st) === 'none'
-        ? '{0} sets bring an {1} with them — switch on Effort per set in Settings to see it.'
-        : '{0} sets bring an {1} with them.',
-      parsed.rirSets || parsed.rpeSets, parsed.rirSets ? 'RIR' : 'RPE')}
+    {!isBW && effortSets > 0 && <div className="small dim" style={{ marginBottom: 10 }}>
+      {t(effortSets === 1
+        ? effortOf(st) === 'none' ? '{0} set brings an {1} with it — switch on Effort per set in Settings to see it.' : '{0} set brings an {1} with it.'
+        : effortOf(st) === 'none' ? '{0} sets bring an {1} with them — switch on Effort per set in Settings to see it.' : '{0} sets bring an {1} with them.',
+      effortSets, parsed.rirSets ? 'RIR' : 'RPE')}
     </div>}
     {!isBW && parsed.unmatchedNames.length > 0 && <>
       <h4 className="sec">{t('Not in the library — added as your own exercises')}</h4>
@@ -329,13 +330,13 @@ function AddToRoutine({ ex, close }) {
     <h3 className="capitalize">{t('Add “{0}”', ex.n)}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{t('Pick a routine — sets, reps & weight come next.')}</div>
     <div className="list">
-      {st.routines.map(r => <div key={r.id} className="item" onClick={() => pick(r.id)}>
+      {st.routines.map(r => <button type="button" key={r.id} className="item" onClick={() => pick(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
         {r.ex.some(e => e.id === ex.id) && <span className="tag">{t('already in')}</span>}<Icon name="plus" className="chev" />
-      </div>)}
-      <div className="item" onClick={() => pick('_new')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="sparkles" /></span>
-        <div className="grow"><div className="tt">{t('New routine')}</div><div className="ss">{t('Create one and start with this exercise')}</div></div><Icon name="plus" className="chev" /></div>
+      </button>)}
+      <button type="button" className="item" onClick={() => pick('_new')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="sparkles" /></span>
+        <div className="grow"><div className="tt">{t('New routine')}</div><div className="ss">{t('Create one and start with this exercise')}</div></div><Icon name="plus" className="chev" /></button>
     </div>
   </>
 }
@@ -442,14 +443,14 @@ function ExercisePicker({ onPick, close }) {
       {eqOpts.map(x => <button key={x} className={'chip' + (eqOn === x ? ' on' : '')} onClick={() => { setEq(x); setShown(50) }}>{t(x)}</button>)}
     </div>}
     <div className="list">
-      {bp !== '★' && <div className="item" onClick={() => customExSheet(null, ex => onPick(ex), q.trim())}>
+      {bp !== '★' && <button type="button" className="item" onClick={() => customExSheet(null, ex => onPick(ex), q.trim())}>
         <div className="thumb thumb-x"><Icon name="sparkles" /></div>
         <div className="grow"><div className="tt">{t('Create your own exercise')}</div><div className="ss">{t('name + body part, no animation')}</div></div><Icon name="plus" className="chev" />
-      </div>}
-      {f.slice(0, shown).map(e => <div key={e.id} className="item" onClick={() => onPick(e)}>
+      </button>}
+      {f.slice(0, shown).map(e => <button type="button" key={e.id} className="item" onClick={() => onPick(e)}>
         <Thumb ex={e} /><div className="grow"><div className="tt capitalize">{e.n}</div><div className="ss capitalize">{t(e.tg || e.bp)} · {t(e.eq)}</div></div>
         {usage[e.id] && <span className="tag acc"><Icon name="starFill" /></span>}<Icon name="plus" className="chev" />
-      </div>)}
+      </button>)}
       {f.length === 0 && bp === '★' && <div className="empty">{t('Nothing chosen yet — add exercises and they’ll show up here.')}</div>}
     </div>
     {f.length > shown && <><div style={{ height: 8 }} /><Button onClick={() => setShown(s => s + 50)}>{t('Show more')}</Button></>}
@@ -624,7 +625,7 @@ function PlanImport({ bundle, close }) {
   const apply = () => {
     update(s => mergePlan(s, bundle, { schedule }))
     close()
-    toast(t('Added {0} routines to your plan', bundle.routineCount))
+    toast(t(bundle.routineCount === 1 ? 'Added {0} routine to your plan' : 'Added {0} routines to your plan', bundle.routineCount))
     nav('/plan')
   }
   return <>
@@ -643,8 +644,8 @@ function PlanImport({ bundle, close }) {
         : '{0} exercises in the file aren’t in your library and were left out.', bundle.dropped)}
     </div>}
     {bundle.scheduledDays > 0 && <div className="row between" style={{ padding: '10px 2px', borderTop: '1px solid var(--sep)', borderBottom: '1px solid var(--sep)', marginBottom: 16, gap: 12 }}>
-      <div><div className="tt" style={{ fontSize: 15 }}>{t('Use this weekly schedule')}</div><div className="small dim">{t('Replaces your current Mon–Sun assignments.')}</div></div>
-      <Switch checked={schedule} onChange={setSchedule} />
+      <div><div className="tt" id="plan-import-schedule-label" style={{ fontSize: 15 }}>{t('Use this weekly schedule')}</div><div className="small dim">{t('Replaces your current Mon–Sun assignments.')}</div></div>
+      <Switch checked={schedule} onChange={setSchedule} aria-labelledby="plan-import-schedule-label" />
     </div>}
     <Button variant="primary" onClick={apply}>{t('Add to my plan')}</Button>
     <div style={{ height: 8 }} />
@@ -668,12 +669,12 @@ function DayOverride({ iso, close }) {
     <h3>{fmtDate(iso, true)}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{t('Weekly plan:')} {weeklyR ? weeklyR.name : t('Rest')}{hasOvr && <span style={{ color: 'var(--orange)' }}> · {t('changed for this day')}</span>}<br />{t('Sick, missed a day or want a different session? Pick what to train instead.')}</div>
     <div className="list">
-      {st.routines.map(r => <div key={r.id} className="item" onClick={() => set(r.id)}>
+      {st.routines.map(r => <button type="button" key={r.id} className="item" onClick={() => set(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-        {effId === r.id && <Icon name="check" className="accent" />}</div>)}
-      <div className="item" onClick={() => set('rest')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest / skip this day')}</div></div>{effId === null && <Icon name="check" className="accent" />}</div>
-      {hasOvr && <div className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="reset" /></span><div className="grow"><div className="tt">{t('Back to weekly plan')}</div></div></div>}
+        {effId === r.id && <Icon name="check" className="accent" />}</button>)}
+      <button type="button" className="item" onClick={() => set('rest')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest / skip this day')}</div></div>{effId === null && <Icon name="check" className="accent" />}</button>
+      {hasOvr && <button type="button" className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="reset" /></span><div className="grow"><div className="tt">{t('Back to weekly plan')}</div></div></button>}
     </div>
   </>
 }
@@ -685,11 +686,11 @@ function DayAssign({ day, close }) {
   return <>
     <h3>{t(DAYN[day])}</h3>
     <div className="list">
-      <div className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest day')}</div></div>{!st.week[day] && <Icon name="check" className="accent" />}</div>
-      {st.routines.map(r => <div key={r.id} className="item" onClick={() => set(r.id)}>
+      <button type="button" className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest day')}</div></div>{!st.week[day] && <Icon name="check" className="accent" />}</button>
+      {st.routines.map(r => <button type="button" key={r.id} className="item" onClick={() => set(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-        {st.week[day] === r.id && <Icon name="check" className="accent" />}</div>)}
+        {st.week[day] === r.id && <Icon name="check" className="accent" />}</button>)}
     </div>
   </>
 }
@@ -741,12 +742,12 @@ function WorkoutDetail({ w, close }) {
           <div className="ss">{e.sets.filter(s => s.done).map(s => setLabel(e.id, s, e.target)).join('  ·  ') || t('no sets')}</div></div>
       </div>
     })}
-    {socialAvailable && <div className="finish-social" style={{ marginBottom: 12 }}><div className="social-toggle"><div><b>{t('Share with your group')}</b><div className="small muted">{t('Changing this does not change ranking eligibility.')}</div></div><Switch checked={shared} onChange={saveShared} /></div>{shared && <>
+    {socialAvailable && <div className="finish-social" style={{ marginBottom: 12 }}><div className="social-toggle"><div><b id="workout-detail-share-label">{t('Share with your group')}</b><div className="small muted">{t('Changing this does not change ranking eligibility.')}</div></div><Switch checked={shared} onChange={saveShared} aria-labelledby="workout-detail-share-label" /></div>{shared && <>
       <div style={{ height: 10 }} /><TextField maxLength={80} value={postTitle} placeholder={t('Post title')} onChange={e => setPostTitle(e.target.value)} />
       <div style={{ height: 8 }} /><TextArea rows={3} maxLength={500} value={postDesc} placeholder={t('Say something about this workout…')} onChange={e => setPostDesc(e.target.value)} />
       {(photo?.preview || (currentPhotoId && !removePhoto)) && <div className="post-photo-preview"><img src={photo?.preview || `/api/social/photo/${encodeURIComponent(currentPhotoId)}`} alt="" /><button className="iconbtn" onClick={() => { setPhoto(null); setRemovePhoto(true) }} aria-label={t('Remove photo')}><Icon name="xmark" /></button></div>}
       {!photo && (!currentPhotoId || removePhoto) && <label className="btn" style={{ marginTop: 8, cursor: 'pointer' }}><Icon name="camera" />{photoBusy ? t('Preparing photo…') : t('Add photo')}<input type="file" accept="image/jpeg,image/png" hidden onChange={choosePhoto} /></label>}
-      <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={shareFields[key]} disabled={(key === 'exactSets' || key === 'effort') && !shareFields.exerciseNames} onChange={value => setField(key, value)} /></div>)}</details>
+      <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span id={'workout-detail-field-' + key}>{t(label)}</span><Switch checked={shareFields[key]} aria-labelledby={'workout-detail-field-' + key} disabled={(key === 'exactSets' || key === 'effort') && !shareFields.exerciseNames} onChange={value => setField(key, value)} /></div>)}</details>
       <Button size="sm" disabled={photoBusy} onClick={() => saveShared(true)}>{t('Save publication')}</Button>
     </>}</div>}
     <Button variant="danger" onClick={() => confirmSheet({ title: t('Delete workout?'), message: t('This removes it from your history for good.'), confirmText: t('Delete'), danger: true, onConfirm: () => { update(s => { s.workouts = s.workouts.filter(x => x.id !== w.id) }); close(); toast(t('Workout deleted')) } })}>{t('Delete workout')}</Button>
@@ -800,13 +801,13 @@ export const calendarSheet = start => ui().openSheet(close => <Calendar start={s
 export function WorkoutRow({ w, onClick }) {
   const st = useStore(s => s.S)
   const glyph = glyphOf((st.routines.find(r => r.id === w.routineId) || {}).emoji)
-  return <div className="item" onClick={onClick}>
+  return <button type="button" className="item" onClick={onClick}>
     <span className="lrow-i" style={{ width: 34, height: 34, borderRadius: 8, fontSize: 19 }}><Icon name={glyph} /></span>
     <div className="grow"><div className="tt">{w.name}</div>
-      <div className="ss">{[fmtDate(w.d, true), ...durPart(w.end - w.start), t('{0} sets', setsDone(w)), fmtVol(w.vol, st.unit)].join(' · ')}</div></div>
+      <div className="ss">{[fmtDate(w.d, true), ...durPart(w.end - w.start), setCount(setsDone(w)), fmtVol(w.vol, st.unit)].join(' · ')}</div></div>
     {w.prs && w.prs.length > 0 && <span className="pr"><Icon name="trophy" />{w.prs.length} PR</span>}
     <Icon name="chevronRight" className="chev" />
-  </div>
+  </button>
 }
 
 /* ============================ workout lifecycle ============================ */
@@ -979,14 +980,14 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     <BodyMap load={loadOfWorkouts([w])} body={st.body} />
     {coachOn && <SessionRating w={w} />}
     {social && <div className="finish-social">
-      <div className="social-toggle"><div style={{ textAlign: 'left' }}><b>{t('Share with your group')}</b><div className="small muted">{t('This workout can still count in rankings when the post is off.')}</div></div><Switch checked={social.publish} onChange={publish => setSocial(v => ({ ...v, publish }))} /></div>
+      <div className="social-toggle"><div style={{ textAlign: 'left' }}><b id="workout-finish-share-label">{t('Share with your group')}</b><div className="small muted">{t('This workout can still count in rankings when the post is off.')}</div></div><Switch checked={social.publish} aria-labelledby="workout-finish-share-label" onChange={publish => setSocial(v => ({ ...v, publish }))} /></div>
       {social.publish && <div style={{ textAlign: 'left', marginTop: 12 }}>
         <TextField maxLength={80} value={social.title} placeholder={t('Post title')} onChange={e => setSocial(v => ({ ...v, title: e.target.value }))} />
         <div style={{ height: 8 }} /><TextArea rows={3} maxLength={500} value={social.desc} placeholder={t('Say something about this workout…')} onChange={e => setSocial(v => ({ ...v, desc: e.target.value }))} />
         {photo?.preview && <div className="post-photo-preview"><img src={photo.preview} alt="" /><button className="iconbtn" onClick={() => setPhoto(null)} aria-label={t('Remove photo')}><Icon name="xmark" /></button></div>}
         {!photo && <label className="btn" style={{ marginTop: 8, cursor: 'pointer' }}><Icon name="camera" />{photoBusy ? t('Preparing photo…') : t('Add photo')}<input type="file" accept="image/jpeg,image/png" hidden onChange={choosePhoto} /></label>}
-        {social.askFields && <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span>{t(label)}</span><Switch checked={social.fields[key]} disabled={(key === 'exactSets' || key === 'effort') && !social.fields.exerciseNames} onChange={value => setSocial(v => ({ ...v, fields: { ...v.fields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) } }))} /></div>)}</details>}
-        {social.askFields && <div className="social-toggle"><div><b>{t('Use these choices next time')}</b><div className="small muted">{t('You can change them later in Settings.')}</div></div><Switch checked={remember} onChange={setRemember} /></div>}
+        {social.askFields && <details><summary>{t('Choose shared details')}</summary>{Object.entries({ exerciseNames: 'Exercise names', exactSets: 'Exact weights and reps', effort: 'RIR / RPE effort', volume: 'Total volume', bodyweight: 'Body weight', rating: 'Session rating', note: 'Session notes' }).map(([key, label]) => <div className="social-toggle" key={key}><span id={'workout-finish-field-' + key}>{t(label)}</span><Switch checked={social.fields[key]} aria-labelledby={'workout-finish-field-' + key} disabled={(key === 'exactSets' || key === 'effort') && !social.fields.exerciseNames} onChange={value => setSocial(v => ({ ...v, fields: { ...v.fields, [key]: value, ...(key === 'exerciseNames' && !value ? { exactSets: false, effort: false } : {}) } }))} /></div>)}</details>}
+        {social.askFields && <div className="social-toggle"><div><b id="workout-finish-remember-label">{t('Use these choices next time')}</b><div className="small muted">{t('You can change them later in Settings.')}</div></div><Switch checked={remember} onChange={setRemember} aria-labelledby="workout-finish-remember-label" /></div>}
       </div>}
     </div>}
     <div className="finish-actions">

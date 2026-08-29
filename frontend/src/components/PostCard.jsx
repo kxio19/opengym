@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { t, dateLocale } from '../lib/i18n.js'
-import { fmtVol, exCount, ACCENTS } from '../lib/format.js'
+import { fmtVol, exCount, setCount, ACCENTS } from '../lib/format.js'
 import { loadOf } from '../lib/muscles.js'
 import Icon from './Icon.jsx'
 import BodyMap from './BodyMap.jsx'
@@ -43,7 +43,7 @@ function Media({ post }) {
   if (hasEntries) pages.push(<div className="post-media-page post-media-list" key="list">
     {post.entries.map(e => <div className="social-entry" key={e.id}>
       <b>{e.name}</b>
-      {e.sets?.length ? <span>{e.sets.map(s => `${s.weight}×${s.reps}`).join(' · ')}</span> : e.setCount ? <span>{t('{0} sets', e.setCount)}</span> : null}
+      {e.sets?.length ? <span>{e.sets.map(s => `${s.weight}×${s.reps}`).join(' · ')}</span> : e.setCount ? <span>{setCount(e.setCount)}</span> : null}
     </div>)}
   </div>)
   const onScroll = e => setPage(Math.round(e.target.scrollLeft / e.target.clientWidth))

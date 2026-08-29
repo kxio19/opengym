@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { t } from '../lib/i18n.js'
-import { fmtDate } from '../lib/format.js'
+import { exCount, fmtDate } from '../lib/format.js'
 import { exLine } from '../lib/history.js'
 import { loadOfRoutine } from '../lib/muscles.js'
 import { DEMO } from '../lib/demo.js'
@@ -88,7 +88,7 @@ function CreatedPlan({ p, S, update, toast, nav, refresh }) {
     {b.routines.map(r => <div key={r.id} className="card">
       <div className="row between" style={{ marginBottom: 4 }}>
         <h2 style={{ margin: 0 }}>{r.emoji} {r.name}</h2>
-        <span className="dim small">{t('{0} exercises', r.ex.length)}</span>
+        <span className="dim small">{exCount(r.ex.length)}</span>
       </div>
       {!!r.why && <div className="dim small" style={{ marginBottom: 10, lineHeight: 1.5 }}>{r.why}</div>}
       {r.ex.map((e, i) => <div key={i} style={{ padding: '8px 0', borderTop: i ? '1px solid var(--sep)' : 'none' }}>
@@ -104,10 +104,10 @@ function CreatedPlan({ p, S, update, toast, nav, refresh }) {
     <div className="card">
       <div className="row between">
         <div style={{ minWidth: 0 }}>
-          <div className="lrow-t">{t('Use this weekly schedule')}</div>
+          <div className="lrow-t" id="coach-schedule-label">{t('Use this weekly schedule')}</div>
           <div className="lrow-s">{t('Replaces your current week. Days this plan leaves empty become rest days.')}</div>
         </div>
-        <Switch checked={schedule} onChange={setSchedule} />
+        <Switch checked={schedule} onChange={setSchedule} aria-labelledby="coach-schedule-label" />
       </div>
     </div>
 
@@ -182,7 +182,7 @@ function ChangeSet({ p, S, update, toast, nav }) {
         <div className="row between" style={{ gap: 10, alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="row" style={{ gap: 8, marginBottom: 3 }}>
-              <span className="small capitalize" style={{ fontWeight: 600 }}>{changeTitle(c)}</span>
+              <span className="small capitalize" id={'coach-change-' + c.id} style={{ fontWeight: 600 }}>{changeTitle(c)}</span>
             </div>
             {vals && <div className="row" style={{ gap: 7, marginBottom: 5 }}>
               <span className="tag">{vals.before}</span>
@@ -194,7 +194,7 @@ function ChangeSet({ p, S, update, toast, nav }) {
               {t('Doesn’t match your plan any more — can’t be applied.')}
             </div>}
           </div>
-          {!stale && <Check checked={accepted.has(c.id)} onChange={() => toggle(c.id)} />}
+          {!stale && <Check checked={accepted.has(c.id)} onChange={() => toggle(c.id)} aria-labelledby={'coach-change-' + c.id} />}
         </div>
       </div>
     })}

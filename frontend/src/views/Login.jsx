@@ -18,6 +18,8 @@ function RegisterSheet({ close }) {
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [inviteOnly, setInviteOnly] = useState(false)
   const ref = useRef(null)
+  const passwordReady = method !== 'password' || (!!secret && !!confirm)
+  const canSubmit = termsAccepted && !!name.trim() && passwordReady
   useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
   useEffect(() => { api('/api/config').then(c => setInviteOnly(!!c.invite_only)).catch(() => {}) }, [])
   const go = async () => {
@@ -25,6 +27,10 @@ function RegisterSheet({ close }) {
     if (!n) { useUI.getState().toast(t('Enter a name')); return }
     if (inviteOnly && !code.trim()) { useUI.getState().toast(t('An invite code is required')); return }
     if (!termsAccepted) { useUI.getState().toast(t('Accept the private group terms to continue')); return }
+    if (method === 'password' && !secret) { useUI.getState().toast(t('Enter a password or PIN')); return }
+    if (method === 'password' && !confirm) { useUI.getState().toast(t('Repeat your password or PIN')); return }
+    if (method === 'password' && /^\d+$/.test(secret) && (secret.length < 6 || secret.length > 12)) { useUI.getState().toast(t('PIN must contain 6 to 12 digits')); return }
+    if (method === 'password' && !/^\d+$/.test(secret) && (secret.length < 8 || secret.length > 128)) { useUI.getState().toast(t('Password must contain 8 to 128 characters')); return }
     if (method === 'password' && secret !== confirm) { useUI.getState().toast(t('Password/PIN values do not match')); return }
     try {
       const u = method === 'password' ? await passwordRegister(n, secret, code.trim(), termsAccepted) : await passkeyRegister(n, code.trim(), termsAccepted)
@@ -56,9 +62,9 @@ function RegisterSheet({ close }) {
         onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
       <div className="dim small" style={{ marginTop: 6 }}>{t('This app is invite-only — enter the code you were given.')}</div>
     </>}
-    <div className="social-toggle" style={{ marginTop: 14, textAlign: 'left' }}><div><b>{t('Private training group')}</b><div className="small muted">{t('I understand that my profile belongs to this private group. I choose what each workout publishes; imported and previous history stays private.')}</div></div><Switch checked={termsAccepted} onChange={setTermsAccepted} /></div>
+    <div className="social-toggle" style={{ marginTop: 14, textAlign: 'left' }}><div><b id="login-private-group-label">{t('Private training group')}</b><div className="small muted">{t('I understand that my profile belongs to this private group. I choose what each workout publishes; imported and previous history stays private.')}</div></div><Switch checked={termsAccepted} onChange={setTermsAccepted} aria-labelledby="login-private-group-label" /></div>
     <div style={{ height: 12 }} />
-    <Button variant="primary" disabled={!termsAccepted} onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
+    <Button variant="primary" disabled={!canSubmit} onClick={go}>{method === 'password' ? t('Create profile') : t('Create passkey')}</Button>
   </>
 }
 

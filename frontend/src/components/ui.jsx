@@ -13,7 +13,7 @@
 //   · :active gives a scale/tint response so touch feels acknowledged
 //   · focus-visible draws a ring; pointer interaction never does
 
-import { useRef, useState, useEffect, useCallback, forwardRef } from 'react'
+import { useRef, useState, useEffect, useCallback, useId, forwardRef } from 'react'
 import Icon from './Icon.jsx'
 import { t } from '../lib/i18n.js'
 
@@ -77,10 +77,11 @@ export function SearchField({ value, onChange, onClear, ...rest }) {
 
 /* ============================ switch ============================ */
 
-export function Switch({ checked, onChange, disabled }) {
+export function Switch({ checked, onChange, disabled, ...rest }) {
   return (
-    <button
-      role="switch"
+      <button
+        {...rest}
+        role="switch"
       aria-checked={!!checked}
       disabled={disabled}
       className={'sw' + (checked ? ' on' : '')}
@@ -117,19 +118,20 @@ export function Segmented({ options, value, onChange, className = '' }) {
 /* ============================ stepper ============================ */
 
 export function Stepper({ value, step = 1, onChange, decimal = true, className = '', label, unit }) {
+  const labelId = useId()
   const set = v => onChange(Math.max(0, Math.round((v || 0) * 100) / 100))
   const inner = (
     <div className={'stp ' + className}>
       <button onClick={() => set((+value || 0) - step)} aria-label={t('Decrease')}><Icon name="minus" /></button>
       <span className="val">
-        <NumberField value={value} decimal={decimal} onChange={onChange} />
+        <NumberField value={value} decimal={decimal} onChange={onChange} aria-labelledby={label ? labelId : undefined} />
         {unit && <i>{unit}</i>}
       </span>
       <button onClick={() => set((+value || 0) + step)} aria-label={t('Increase')}><Icon name="plus" /></button>
     </div>
   )
   if (!label) return inner
-  return <div className="stp-w"><span className="stp-l">{label}</span>{inner}</div>
+  return <div className="stp-w"><span className="stp-l" id={labelId}>{label}</span>{inner}</div>
 }
 
 /* ============================ slider ============================ */
@@ -197,10 +199,11 @@ export function Slider({ value, min = 0, max = 100, step = 1, onChange, classNam
 
 /* ============================ checkbox ============================ */
 
-export function Check({ checked, onChange, className = '', size }) {
+export function Check({ checked, onChange, className = '', size, ...rest }) {
   return (
-    <button
-      role="checkbox"
+      <button
+        {...rest}
+        role="checkbox"
       aria-checked={!!checked}
       className={'chk' + (checked ? ' on' : '') + ' ' + className}
       style={size ? { width: size, height: size } : null}
@@ -226,13 +229,13 @@ export function Section({ title, footer, children, className = '' }) {
   )
 }
 
-export function Row({ icon, iconTint, title, subtitle, value, accessory = 'none', onClick, danger, children, className = '' }) {
+export function Row({ icon, iconTint, title, titleId, subtitle, value, accessory = 'none', onClick, danger, children, className = '' }) {
   const Tag = onClick ? 'button' : 'div'
   return (
     <Tag className={'lrow' + (onClick ? ' tap' : '') + (danger ? ' danger' : '') + ' ' + className} onClick={onClick}>
       {icon && <span className="lrow-i" style={iconTint ? { '--tint': iconTint } : null}><Icon name={icon} /></span>}
       <span className="lrow-m">
-        <span className="lrow-t">{title}</span>
+        <span className="lrow-t" id={titleId}>{title}</span>
         {subtitle && <span className="lrow-s">{subtitle}</span>}
       </span>
       {children}

@@ -300,14 +300,14 @@ function LogCard({ coach }) {
     <div className="list">
       {log.slice(0, 20).map(e => {
         const applied = (e.decisions || []).filter(d => d.status === 'accepted').length
-        return <div key={e.id} className="item" onClick={() => detail(e)}>
+        return <button type="button" key={e.id} className="item" onClick={() => detail(e)}>
           <div className="grow">
             <div className="tt">{e.kind === 'create' ? t('Built a plan') : e.kind === 'revert' ? t('Undid the last changes') : t('Reviewed your training')}</div>
             <div className="ss">{fmtDate(new Date(e.at).toISOString().slice(0, 10))}
               {e.kind === 'review' ? ' · ' + t('{0} applied', applied) : ''}</div>
           </div>
           <Icon name="chevronRight" className="chev" />
-        </div>
+        </button>
       })}
     </div>
   </>

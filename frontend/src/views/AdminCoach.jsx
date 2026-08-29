@@ -65,8 +65,8 @@ export default function AdminCoach() {
 
   return <div className="card" style={{ borderColor: live ? 'var(--acc)' : undefined }}>
     <div className="row between" style={{ marginBottom: 8 }}>
-      <h2 style={{ margin: 0 }}>AI Coach</h2>
-      <Switch checked={!!d.enabled} disabled={busy} onChange={v => patch({ enabled: v })} />
+      <h2 id="admin-coach-enabled-label" style={{ margin: 0 }}>AI Coach</h2>
+      <Switch checked={!!d.enabled} disabled={busy} onChange={v => patch({ enabled: v })} aria-labelledby="admin-coach-enabled-label" />
     </div>
 
     {!d.enabled && <div className="muted small">{t('Off. Users see no Coach anywhere in the app.')}</div>}

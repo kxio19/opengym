@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { EXIDX } from '../lib/exercises.js'
 import { lastBW, planStreak, setLabel, modeOf, effortOf } from '../lib/history.js'
-import { fmtNum, fmtDate, fmtVol, todayISO, weekKey } from '../lib/format.js'
+import { fmtNum, fmtDate, fmtVol, todayISO, weekKey, setCount } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow, bwDeltaColor } from '../sheets.jsx'
 import LineChart from '../components/LineChart.jsx'
@@ -56,12 +56,12 @@ function MuscleBalance({ S }) {
       <BodyMapLegend />
       {sel && <div className="mrow" style={{ borderTop: 'var(--hair) solid var(--sep)', marginTop: 4, paddingTop: 10 }}>
         <span className="nm"><b>{t(MUSCLE_NAME[sel])}</b></span>
-        <span className="v">{sets(sel) ? t('{0} sets', sets(sel)) : on ? t('no hard sets') : t('not trained')}</span>
+        <span className="v">{sets(sel) ? setCount(sets(sel)) : on ? t('no hard sets') : t('not trained')}</span>
       </div>}
       {!sel && top.map(m => <div key={m} className="mrow">
         <span className="nm">{t(MUSCLE_NAME[m])}</span>
         <span className="bar"><i style={{ width: Math.round(load[m] / max * 100) + '%', background: on ? 'var(--yellow)' : undefined }} /></span>
-        <span className="v">{t('{0} sets', sets(m))}</span>
+        <span className="v">{setCount(sets(m))}</span>
       </div>)}
       {missed.length > 0 && <>
         <h4 className="sec" style={{ marginTop: 12 }}>{on ? t('No hard sets in this period') : t('Not trained in this period')}</h4>
@@ -90,7 +90,7 @@ function EffortCard({ S }) {
   const maxBin = Math.max(1, ...hist.map(b => b.n))
   // The week's set count rides along in the tooltip, because the pair is the reading:
   // volume up with effort up is fatigue piling up, volume up with effort flat is adaptation.
-  const pts = weeks.map(w => ({ t: w.t, y: toScale(kind, w.rir), note: t('{0} sets', w.sets) }))
+  const pts = weeks.map(w => ({ t: w.t, y: toScale(kind, w.rir), note: setCount(w.sets) }))
   // Bins run hardest-first in both scales: RIR 0 and RPE 10 are the same set.
   const binLabel = b => kind === 'rpe' ? (b.tail ? '≤ 6' : String(10 - b.rir)) : (b.tail ? b.rir + '+' : String(b.rir))
 

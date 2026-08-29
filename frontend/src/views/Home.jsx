@@ -127,7 +127,7 @@ export default function Home() {
     <div className="hdr">
       <div><h1>{user ? t('Hi {0}', user.name) : 'openGym'}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
       <div className="row" style={{ gap: 6 }}>
-        {!!streak && <button className="iconbtn streak-btn" onClick={() => calendarSheet()} aria-label={t('{0}-day streak', streak)}>
+        {!!streak && <button className="iconbtn streak-btn" onClick={() => calendarSheet()} aria-label={streak === 1 ? t('1-day streak') : t('{0}-day streak', streak)}>
           <Icon name="flame" style={{ color: 'var(--orange)' }} /><span>{streak}</span>
         </button>}
         <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
