@@ -155,6 +155,51 @@ function InvitesCard({ invites, reload }) {
   </div>
 }
 
+function PendingRequestsCard({ requests, reload }) {
+  const toast = useUI(s => s.toast)
+  const act = (request, action) => api(`/api/admin/user/${action}`, { method: 'POST', body: JSON.stringify({ id: request.id }) })
+    .then(() => { toast(action === 'approve' ? t('Access approved for {0}', request.name) : t('Access request rejected for {0}', request.name)); reload() })
+    .catch(e => toast(e.message))
+  if (!requests.length) return null
+  return <div className="card" style={{ borderColor: 'var(--orange)' }}>
+    <div className="row between"><h2 style={{ margin: 0 }}>{t('Pending access requests')}</h2><span className="tag">{requests.length}</span></div>
+    <div className="small muted" style={{ margin: '6px 0 10px' }}>{t('Approve a request to activate the account and add it to the group.')}</div>
+    {requests.map(request => <div key={request.id} className="row between" style={{ gap: 10, padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
+      <div className="grow"><div className="small" style={{ fontWeight: 600 }}>{request.name}</div><div className="dim" style={{ fontSize: '.72rem' }}>{t('requested {0}', request.requestedAt ? fmtDate(request.requestedAt.slice(0, 10), true) : '—')}</div></div>
+      <div className="row" style={{ gap: 6 }}>
+        <Button size="sm" variant="primary" onClick={() => act(request, 'approve')}>{t('Approve')}</Button>
+        <Button size="sm" onClick={() => confirmSheet({ title: t('Reject access for {0}?', request.name), message: t('The pending account will be deleted and the name can be used again.'), confirmText: t('Reject'), danger: true, onConfirm: () => act(request, 'reject') })}>{t('Reject')}</Button>
+      </div>
+    </div>)}
+  </div>
+}
+
+function SuggestionsCard({ suggestions, reload }) {
+  const toast = useUI(s => s.toast)
+  const resolve = id => api('/api/admin/suggestions/resolve', { method: 'POST', body: JSON.stringify({ id }) })
+    .then(() => { toast(t('Suggestion marked as resolved')); reload() })
+    .catch(e => toast(e.message))
+  const ordered = (suggestions || []).slice().sort((a, b) =>
+    Number(!!a.resolvedAt) - Number(!!b.resolvedAt) || String(b.created).localeCompare(String(a.created)))
+  const pending = ordered.filter(item => !item.resolvedAt).length
+  return <div className="card" style={pending ? { borderColor: 'var(--yellow)' } : null}>
+    <div className="row between"><h2 style={{ margin: 0 }}>{t('Suggestions')}</h2>{pending > 0 && <span className="tag">{pending}</span>}</div>
+    <div className="small muted" style={{ margin: '6px 0 10px' }}>{t('Bug reports and improvement ideas sent from Settings.')}</div>
+    {ordered.map(item => <div key={item.id} style={{ padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
+      <div className="row between" style={{ gap: 10 }}>
+        <div className="grow">
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><b className="small">{item.userName}</b><span className="tag">{item.type === 'bug' ? t('Bug') : t('Improvement')}</span>{item.resolvedAt && <span className="tag acc">{t('Resolved')}</span>}</div>
+          <div className="dim" style={{ fontSize: '.72rem', marginTop: 2 }}>{item.created ? fmtDate(item.created.slice(0, 10), true) : '—'}</div>
+        </div>
+        {!item.resolvedAt && <Button size="sm" onClick={() => resolve(item.id)}>{t('Mark as resolved')}</Button>}
+      </div>
+      <div className="small" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', marginTop: 7 }}>{item.text}</div>
+    </div>)}
+    {suggestions && !ordered.length && <div className="dim small">{t('No suggestions yet.')}</div>}
+    {!suggestions && <div className="dim small">{t('Loading…')}</div>}
+  </div>
+}
+
 function SocialModeration({ data, reload }) {
   const toast = useUI(s => s.toast)
   if (!data?.enabled) return null
@@ -175,29 +220,33 @@ export default function Admin() {
   const [invites, setInvites] = useState(null)
   const [inviteOnly, setInviteOnly] = useState(false)
   const [social, setSocial] = useState(null)
+  const [suggestions, setSuggestions] = useState(null)
 
   const loadUsers = () => api('/api/admin/users').then(d => { setUsers(d.users); setInviteOnly(d.invite_only) }).catch(e => toast(e.message || t('Failed to load')))
   const loadInvites = () => api('/api/admin/invites').then(d => setInvites(d.invites)).catch(() => {})
   const loadSocial = () => api('/api/admin/social').then(setSocial).catch(() => {})
+  const loadSuggestions = () => api('/api/admin/suggestions').then(d => setSuggestions(d.suggestions)).catch(() => {})
   // poll every 15s so the "training now" section stays live without a manual refresh
-  useEffect(() => { if (!user?.admin) return; loadUsers(); loadInvites(); loadSocial(); const iv = setInterval(loadUsers, 15000); return () => clearInterval(iv) }, [])
+  useEffect(() => { if (!user?.admin) return; loadUsers(); loadInvites(); loadSocial(); loadSuggestions(); const iv = setInterval(loadUsers, 15000); return () => clearInterval(iv) }, [])
   if (!user?.admin) return null
 
   const openUser = id => openSheet(close => <UserDetail id={id} onChanged={loadUsers} close={close} />)
-  const liveUsers = (users || []).filter(u => u.live)
-  const activeCount = (users || []).filter(u => u.lastSync && Date.now() - u.lastSync < 7 * 86400000).length
-  const disabledCount = (users || []).filter(u => u.disabled).length
+  const pendingRequests = (users || []).filter(u => u.pending)
+  const activeUsers = (users || []).filter(u => !u.pending)
+  const liveUsers = activeUsers.filter(u => u.live)
+  const activeCount = activeUsers.filter(u => u.lastSync && Date.now() - u.lastSync < 7 * 86400000).length
+  const disabledCount = activeUsers.filter(u => u.disabled).length
 
   return <div className="narrow">
     <div className="hdr">
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Back')}><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, marginLeft: 8 }}><h1 style={{ margin: 0 }}>{t('Admin')}</h1>
-        <div className="sub">{users ? t('{0} users · {1} active this week', users.length, activeCount) : t('Loading…')}</div></div>
-      <button className="iconbtn" onClick={() => { loadUsers(); loadInvites(); loadSocial() }} aria-label={t('refresh')}>↻</button>
+        <div className="sub">{users ? t('{0} users · {1} active this week', activeUsers.length, activeCount) : t('Loading…')}</div></div>
+      <button className="iconbtn" onClick={() => { loadUsers(); loadInvites(); loadSocial(); loadSuggestions() }} aria-label={t('refresh')}>↻</button>
     </div>
 
     <div className="tiles" style={{ marginBottom: 12 }}>
-      <div className="tile"><div className="l">{t('Users')}</div><div className="v">{users ? users.length : '—'}</div></div>
+      <div className="tile"><div className="l">{t('Users')}</div><div className="v">{users ? activeUsers.length : '—'}</div></div>
       <div className="tile"><div className="l">{t('Training now')}</div><div className="v" style={{ color: liveUsers.length ? 'var(--acc)' : undefined }}>{users ? liveUsers.length : '—'}</div></div>
       <div className="tile"><div className="l">{t('Active 7d')}</div><div className="v">{users ? activeCount : '—'}</div></div>
       <div className="tile"><div className="l">{t('Disabled')}</div><div className="v">{users ? disabledCount : '—'}</div></div>
@@ -205,12 +254,16 @@ export default function Admin() {
 
     {liveUsers.length > 0 && <div className="card" style={{ borderColor: 'var(--acc)' }}>
       <h2 className="row" style={{ margin: '0 0 8px', gap: 6 }}><Icon name="dot" style={{ fontSize: 10, color: 'var(--green)' }} />{t('Training now')}</h2>
-      {liveUsers.map(u => <div key={u.id} className="row between" style={{ padding: '8px 2px', borderBottom: '1px solid var(--sep)' }} onClick={() => openUser(u.id)}>
+      {liveUsers.map(u => <button type="button" key={u.id} className="row between" style={{ width: '100%', padding: '8px 2px', border: 0, borderBottom: '1px solid var(--sep)', background: 'none', color: 'inherit', textAlign: 'left', cursor: 'pointer' }} onClick={() => openUser(u.id)}>
         <div><div className="small" style={{ fontWeight: 600 }}>{u.name}</div>
           <div className="dim" style={{ fontSize: '.72rem' }}>{u.live.name} · {t('ex {0}/{1}', u.live.exIdx, u.live.exTotal)} · {t('{0}/{1} sets', u.live.setsDone, u.live.setsTotal)}</div></div>
         <span className="tag acc">{dur(Date.now() - u.live.startedAt)}</span>
-      </div>)}
+      </button>)}
     </div>}
+
+    <PendingRequestsCard requests={pendingRequests} reload={() => { loadUsers(); loadSocial() }} />
+
+    <SuggestionsCard suggestions={suggestions} reload={loadSuggestions} />
 
     <AdminCoach />
 
@@ -220,12 +273,12 @@ export default function Admin() {
 
     <h4 className="sec">{t('Users')}</h4>
     <div className="list">
-      {(users || []).map(u => <button type="button" key={u.id} className="item" onClick={() => openUser(u.id)} style={u.disabled ? { opacity: .55 } : null}>
+      {activeUsers.map(u => <button type="button" key={u.id} className="item" onClick={() => openUser(u.id)} style={u.disabled ? { opacity: .55 } : null}>
         <div className="grow"><div className="tt">{u.live && <Icon name="dot" style={{ fontSize: 9, color: 'var(--green)', display: 'inline-block', marginRight: 5 }} />}{u.name} {u.admin && <span className="tag acc" style={{ marginLeft: 4 }}>{t('admin')}</span>}{u.disabled && <span className="tag" style={{ marginLeft: 4, color: 'var(--red)' }}>{t('off')}</span>}</div>
           <div className="ss">{u.live ? t('training now') + ' · ' + u.live.name : workoutCount(u.workouts) + (u.lastWorkout ? ' · ' + t('last {0}', fmtDate(u.lastWorkout)) : '') + ' · ' + t('synced {0}', rel(u.lastSync))}</div></div>
         {u.hasPush && <Icon name="bell" title={t('push enabled')} style={{ fontSize: 15, color: 'var(--label-3)' }} />}<Icon name="chevronRight" className="chev" />
       </button>)}
-      {users && !users.length && <div className="empty">{t('No users yet.')}</div>}
+      {users && !activeUsers.length && <div className="empty">{t('No users yet.')}</div>}
     </div>
   </div>
 }

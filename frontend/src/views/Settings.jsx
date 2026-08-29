@@ -13,9 +13,10 @@ import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { forgetCoach } from '../lib/coach-api.js'
+import { api } from '../lib/api.js'
 import Icon from '../components/Icon.jsx'
 import SocialSettings from '../components/SocialSettings.jsx'
-import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
+import { Section, Row, SelectRow, Switch, Segmented, Button, TextField, TextArea } from '../components/ui.jsx'
 
 export default function Settings() {
   const nav = useNavigate()
@@ -61,6 +62,7 @@ export default function Settings() {
   const addPasskeyHere = () => useUI.getState().openSheet(close => <AddPasskeySheet close={close} toast={toast} setUser={setUser} />)
   const recoveryCodesHere = () => useUI.getState().openSheet(close => <RecoveryCodesSheet close={close} toast={toast} user={user} />)
   const passwordHere = () => useUI.getState().openSheet(close => <PasswordSettingsSheet close={close} toast={toast} user={user} setUser={setUser} />)
+  const suggestionHere = () => useUI.getState().openSheet(close => <SuggestionSheet close={close} toast={toast} />)
   // Ends the profile's sessions on every device — this one included, so on success it lands in
   // the same place as the plain sign-out above (home, local data cleared). On failure nothing
   // local is touched: still signed in here, and say so rather than leaving a half-signed-out app.
@@ -130,6 +132,11 @@ export default function Settings() {
       <p className="sect-f" style={{ marginTop: -6, marginBottom: 22 }}>{t('An administrator restored access to this profile on {0}.', fmtDate(String(user.lastAdminRecovery).slice(0, 10)))}</p>}
 
     {user && <SocialSettings />}
+
+    {user && <Section title={t('Help and feedback')}>
+      <Row icon="message" iconTint="var(--yellow)" title={t('Report a bug or suggest an improvement')}
+        subtitle={t('Send a note directly to the openGym admins.')} accessory="chevron" onClick={suggestionHere} />
+    </Section>}
 
     {/* ---------- general ---------- */}
     <Section title={t('General')} footer={t('Note: switching units only changes the label — logged numbers are not converted.')}>
@@ -280,6 +287,34 @@ function effortHelpSheet() {
     </div>
     <div style={{ height: 8 }} />
   </>)
+}
+
+function SuggestionSheet({ close, toast }) {
+  const [type, setType] = useState('bug')
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const send = async () => {
+    if (!text.trim()) { toast(t('Write your suggestion')); return }
+    setBusy(true)
+    try {
+      await api('/api/suggestions', { method: 'POST', body: JSON.stringify({ type, text }) })
+      close()
+      toast(t('Thanks, your suggestion was sent.'))
+    } catch { toast(t('Could not send suggestion')); setBusy(false) }
+  }
+  return <>
+    <h3>{t('Send a suggestion')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>{t('Tell us about a bug or an improvement you would like to see.')}</div>
+    <Segmented options={[
+      { value: 'bug', label: t('Bug') },
+      { value: 'idea', label: t('Improvement') },
+    ]} value={type} onChange={setType} />
+    <div style={{ height: 10 }} />
+    <TextArea value={text} onChange={event => setText(event.target.value)} maxLength={1000} rows={6}
+      aria-label={t('Suggestion text')} placeholder={t('What happened, or what could be better?')} />
+    <div className="dim small" style={{ marginTop: 6, textAlign: 'right' }}>{text.length}/1000</div>
+    <div style={{ height: 12 }} /><Button variant="primary" disabled={busy || !text.trim()} onClick={send}>{busy ? t('Sending…') : t('Send')}</Button>
+  </>
 }
 
 function NotificationsCard({ S, update, toast }) {

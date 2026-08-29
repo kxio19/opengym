@@ -13,7 +13,7 @@ import * as coachConfig from './coach/config.js';
 import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
 import { startCadence } from './coach/cadence.js';
-import { createSocialService } from './social/service.js';
+import { createSocialService, defaultSocialProfile } from './social/service.js';
 import { createRecoveryCodes, findRecoveryCode, hashRecoveryCode } from './auth/recovery.js';
 import { hashLoginSecret, normalizeUsername, validateLoginSecret, verifyLoginSecret } from './auth/password.js';
 
@@ -69,6 +69,7 @@ try { db = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
 db.subs = db.subs || [];
 db.invites = db.invites || [];
 db.adminActions = db.adminActions || [];
+db.suggestions = db.suggestions || [];
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 
 // An admin who can hand someone a way back into their account can also sign in as them. That is
@@ -77,6 +78,15 @@ const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(us
 function recordAdminAction(adminId, targetId, action) {
   db.adminActions.push({ ts: new Date().toISOString(), adminId, targetId, action });
   if (db.adminActions.length > 500) db.adminActions.splice(0, db.adminActions.length - 500);
+}
+function recordSuggestion(suggestion) {
+  db.suggestions.push(suggestion);
+  let excess = db.suggestions.length - 500;
+  for (let i = 0; i < db.suggestions.length && excess > 0;) {
+    if (db.suggestions[i].resolvedAt) { db.suggestions.splice(i, 1); excess--; }
+    else i++;
+  }
+  if (excess > 0) db.suggestions.splice(0, excess);
 }
 function lastAdminRecovery(uid) {
   for (let i = db.adminActions.length - 1; i >= 0; i--) if (db.adminActions[i].targetId === uid) return db.adminActions[i].ts;
@@ -239,7 +249,7 @@ function readSession(req) {
   if (!uid || +exp < Date.now()) return null;
   const user = db.users.find(u => u.id === uid) || null;
   if (!user) return null;
-  if (user.disabled) return null;           // disabled accounts are locked out everywhere
+  if (user.disabled || user.pending) return null; // disabled and unapproved accounts are locked out everywhere
   // Missing third field = pre-versioning cookie = version 0. Anything non-numeric is a malformed
   // payload (it still had to pass the HMAC, so this is belt-and-braces) and is refused outright.
   const claimed = ver === undefined ? 0 : Number(ver);
@@ -326,7 +336,8 @@ setInterval(() => { for (const [k, v] of presence) if (Date.now() - v.updatedAt 
 
 const social = createSocialService({
   dataDir: DATA,
-  users: () => db.users,
+  // Pending requests are not members yet and must not be enrolled by Social's boot migration.
+  users: () => db.users.filter(user => !user.pending),
   readState,
   writeState,
   isAdmin,
@@ -334,6 +345,35 @@ const social = createSocialService({
   enabled: SOCIAL_ENABLED,
   timeZone: SOCIAL_TZ
 });
+
+// Keep immediate invite signups and admin approvals on one explicit Social-enrolment path.
+// syncUserState persists the profile together with the user's (normally empty) initial state.
+async function ensureSocialProfile(user) {
+  if (!SOCIAL_ENABLED) return;
+  const data = social.getData();
+  if (!data.profiles[user.id]) data.profiles[user.id] = defaultSocialProfile(user);
+  await social.syncUserState(user, readState(user.id) || {});
+}
+
+async function notifyAdminsOfAccessRequest(user) {
+  await Promise.all(db.users.filter(candidate => isAdmin(candidate) && !candidate.disabled && !candidate.pending)
+    .map(admin => sendPush(admin.id, {
+      title: 'New openGym access request',
+      body: `${user.name} is waiting for approval.`,
+      tag: `access-request-${user.id}`,
+      url: '#/admin'
+    })));
+}
+
+async function notifyAdminsOfSuggestion(user, suggestion) {
+  await Promise.all(db.users.filter(candidate => isAdmin(candidate) && !candidate.disabled && !candidate.pending)
+    .map(admin => sendPush(admin.id, {
+      title: 'New openGym suggestion',
+      body: `${user.name} sent a ${suggestion.type === 'bug' ? 'bug report' : 'feature idea'}.`,
+      tag: `suggestion-${suggestion.id}`,
+      url: '#/admin'
+    })));
+}
 
 // Small in-process guard in addition to the reverse proxy. The instance is deliberately
 // single-process, so a per-process sliding window is enough to stop accidental loops and
@@ -346,6 +386,7 @@ function rateRule(key) {
   if (key === 'POST /api/recovery/login') return { max: 5, ms: 10 * 60000 };
   if (/^POST \/api\/(register|login|passkeys|recovery|password)\//.test(key)) return { max: 20, ms: 10 * 60000 };
   if (key === 'POST /api/social/comments/new') return { max: 5, ms: 60000 };
+  if (key === 'POST /api/suggestions') return { max: 5, ms: 60000 };
   if (key === 'POST /api/social/challenges/new') return { max: 10, ms: 86400000 };
   if (key.startsWith('POST /api/social/') || key === 'PUT /api/social/me') return { max: 30, ms: 60000 };
   if (key.startsWith('GET /api/social/')) return { max: 120, ms: 60000 };
@@ -393,20 +434,28 @@ const routes = {
     try { secret = validateLoginSecret(body.secret); }
     catch (error) { return json(res, 400, { error: error.message }); }
     const code = String(body.code || '').trim().toUpperCase();
-    if (INVITE_ONLY && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked))
+    const requestingAccess = INVITE_ONLY && body.requestAccess === true && !code;
+    if (body.requestAccess === true && code) return json(res, 400, { error: 'an access request cannot include an invite code' });
+    if (INVITE_ONLY && !requestingAccess && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked))
       return json(res, 403, { error: 'a valid invite code is required' });
     const passwordHash = await hashLoginSecret(secret, SECRET);
     if (db.users.some(u => normalizeUsername(u.name) === username)) return json(res, 409, { error: 'that username is already in use' });
     let invite = null;
-    if (INVITE_ONLY) {
+    if (INVITE_ONLY && !requestingAccess) {
       invite = db.invites.find(i => i.code === code && !i.usedBy && !i.revoked);
       if (!invite) return json(res, 403, { error: 'invite code is no longer valid — ask for a new one' });
     }
     const user = { id: crypto.randomBytes(12).toString('base64url'), name, passwordHash, created: new Date().toISOString() };
     user.termsAcceptedAt = user.created;
+    if (requestingAccess) { user.pending = true; user.requestedAt = user.created; }
     if (invite) { user.invitedBy = invite.code; invite.usedBy = user.id; invite.usedAt = user.created; }
     db.users.push(user);
     saveDb();
+    if (requestingAccess) {
+      await notifyAdminsOfAccessRequest(user);
+      return json(res, 200, { pending: true });
+    }
+    await ensureSocialProfile(user);
     json(res, 200, { user: publicUser(user) }, { 'Set-Cookie': sessionCookie(user) });
   },
 
@@ -416,6 +465,7 @@ const routes = {
     const user = db.users.find(u => normalizeUsername(u.name) === username && u.passwordHash);
     const valid = await verifyLoginSecret(body.secret, user?.passwordHash || DUMMY_PASSWORD_HASH, SECRET);
     if (!valid || !user || user.disabled) return json(res, 401, { error: 'invalid username or password/PIN' });
+    if (user.pending) return json(res, 403, { error: 'your access request is pending approval' });
     json(res, 200, { user: publicUser(user) }, { 'Set-Cookie': sessionCookie(user) });
   },
 
@@ -485,7 +535,9 @@ const routes = {
     if (!name) return json(res, 400, { error: 'name required' });
     if (db.users.some(u => normalizeUsername(u.name) === normalizeUsername(name))) return json(res, 409, { error: 'that username is already in use' });
     const code = String(body.code || '').trim().toUpperCase();
-    if (INVITE_ONLY && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked))
+    const requestingAccess = INVITE_ONLY && body.requestAccess === true && !code;
+    if (body.requestAccess === true && code) return json(res, 400, { error: 'an access request cannot include an invite code' });
+    if (INVITE_ONLY && !requestingAccess && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked))
       return json(res, 403, { error: 'a valid invite code is required' });
     const uid = crypto.randomBytes(12).toString('base64url');
     const options = await generateRegistrationOptions({
@@ -495,7 +547,7 @@ const routes = {
       authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
       excludeCredentials: []
     });
-    const cid = putChallenge({ challenge: options.challenge, name, uid, code, termsAccepted: true });
+    const cid = putChallenge({ challenge: options.challenge, name, uid, code, termsAccepted: true, requestingAccess });
     json(res, 200, { cid, options });
   },
 
@@ -519,12 +571,13 @@ const routes = {
     if (db.users.some(u => normalizeUsername(u.name) === normalizeUsername(c.name))) return json(res, 409, { error: 'that username is already in use' });
     // Re-check the invite at the last moment (it may have been used/revoked since options), then burn it.
     let invite = null;
-    if (INVITE_ONLY) {
+    if (INVITE_ONLY && !c.requestingAccess) {
       invite = db.invites.find(i => i.code === c.code && !i.usedBy && !i.revoked);
       if (!invite) return json(res, 403, { error: 'invite code is no longer valid — ask for a new one' });
     }
     const user = { id: c.uid, name: c.name, created: new Date().toISOString() };
     user.termsAcceptedAt = user.created;
+    if (c.requestingAccess) { user.pending = true; user.requestedAt = user.created; }
     if (invite) { user.invitedBy = invite.code; invite.usedBy = user.id; invite.usedAt = user.created; }
     db.users.push(user);
     db.creds.push({
@@ -534,6 +587,11 @@ const routes = {
       transports: body.credential?.response?.transports || []
     });
     saveDb();
+    if (c.requestingAccess) {
+      await notifyAdminsOfAccessRequest(user);
+      return json(res, 200, { pending: true });
+    }
+    await ensureSocialProfile(user);
     json(res, 200, { user: publicUser(user) }, { 'Set-Cookie': sessionCookie(user) });
   },
 
@@ -573,6 +631,7 @@ const routes = {
     const user = db.users.find(u => u.id === cred.userId);
     if (!user) return json(res, 500, { error: 'user missing' });
     if (user.disabled) return json(res, 403, { error: 'this account has been disabled' });
+    if (user.pending) return json(res, 403, { error: 'your access request is pending approval' });
     json(res, 200, { user: publicUser(user) }, { 'Set-Cookie': sessionCookie(user) });
   },
 
@@ -686,6 +745,7 @@ const routes = {
     const body = await readBody(req, 4096);
     const match = findRecoveryCode(db.users, body.code, SECRET);
     if (!match || match.user.disabled) return json(res, 401, { error: 'invalid or already used recovery code' });
+    if (match.user.pending) return json(res, 403, { error: 'your access request is pending approval' });
     match.user.recoveryCodes.splice(match.index, 1);
     saveDb();
     const user = match.user;
@@ -793,6 +853,30 @@ const routes = {
     json(res, 200, { ok: true });
   },
 
+  'POST /api/suggestions': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req, 4096);
+    const type = String(body.type || '');
+    if (type !== 'bug' && type !== 'idea') return json(res, 400, { error: 'type must be bug or idea' });
+    const text = String(body.text || '').trim().replace(/[<>]/g, '').slice(0, 1000);
+    if (!text) return json(res, 400, { error: 'text required' });
+    const suggestion = {
+      id: crypto.randomBytes(12).toString('base64url'),
+      type,
+      text,
+      userId: user.id,
+      userName: user.name,
+      created: new Date().toISOString(),
+      resolvedAt: null,
+      resolvedBy: null
+    };
+    recordSuggestion(suggestion);
+    saveDb();
+    await notifyAdminsOfSuggestion(user, suggestion);
+    json(res, 200, { ok: true });
+  },
+
   /* ---------- admin dashboard ---------- */
   // One row per user, cheap enough for a personal instance (reads each state file once).
   'GET /api/admin/users': async (req, res) => {
@@ -803,7 +887,8 @@ const routes = {
       const last = workouts[workouts.length - 1];
       return {
         id: u.id, name: u.name, created: u.created || null,
-        disabled: !!u.disabled, admin: isAdmin(u), invitedBy: u.invitedBy || null,
+        disabled: !!u.disabled, pending: !!u.pending, requestedAt: u.requestedAt || null,
+        admin: isAdmin(u), invitedBy: u.invitedBy || null,
         workouts: workouts.length,
         lastWorkout: last ? last.d : null,
         lastSync: S._ts || null,
@@ -812,6 +897,32 @@ const routes = {
       };
     });
     json(res, 200, { users, invite_only: INVITE_ONLY, now: Date.now() });
+  },
+
+  'POST /api/admin/user/approve': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const body = await readBody(req);
+    const u = db.users.find(x => x.id === body.id);
+    if (!u) return json(res, 404, { error: 'no such user' });
+    if (!u.pending) return json(res, 400, { error: 'user is not pending approval' });
+    delete u.pending;
+    await ensureSocialProfile(u);
+    recordAdminAction(admin.id, u.id, 'approve-access');
+    saveDb();
+    json(res, 200, { ok: true, id: u.id });
+  },
+
+  'POST /api/admin/user/reject': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const body = await readBody(req);
+    const u = db.users.find(x => x.id === body.id);
+    if (!u) return json(res, 404, { error: 'no such user' });
+    if (!u.pending) return json(res, 400, { error: 'user is not pending approval' });
+    recordAdminAction(admin.id, u.id, 'reject-access');
+    db.creds = db.creds.filter(credential => credential.userId !== u.id);
+    db.users = db.users.filter(user => user.id !== u.id);
+    saveDb();
+    json(res, 200, { ok: true, id: u.id });
   },
 
   // Drill-down: full workout history + body-weight log for one user.
@@ -930,6 +1041,24 @@ const routes = {
     json(res, 200, { ok: true });
   },
 
+  'GET /api/admin/suggestions': async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    json(res, 200, { suggestions: db.suggestions });
+  },
+
+  'POST /api/admin/suggestions/resolve': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const body = await readBody(req, 4096);
+    const suggestion = db.suggestions.find(item => item.id === String(body.id || ''));
+    if (!suggestion) return json(res, 404, { error: 'no such suggestion' });
+    if (!suggestion.resolvedAt) {
+      suggestion.resolvedAt = new Date().toISOString();
+      suggestion.resolvedBy = admin.id;
+      saveDb();
+    }
+    json(res, 200, { ok: true, suggestion });
+  },
+
   /* ---------- AI Coach ---------- */
   // Routes live in coach/routes.js and are handed the helpers above rather than importing
   // them: they are closures over db and SECRET, and passing them in keeps that module free of
@@ -953,7 +1082,7 @@ coachJobs.setProposalHook((uid, pending) => {
     tag: 'coach-proposal', url: '#/coach'
   });
 });
-startCadence({ users: () => db.users, userNow });
+startCadence({ users: () => db.users.filter(user => !user.pending), userNow });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

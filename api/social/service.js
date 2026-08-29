@@ -5,8 +5,8 @@ import path from 'node:path';
 export const SOCIAL_VERSION = 1;
 export const SOCIAL_FIELDS = ['exerciseNames', 'exactSets', 'effort', 'volume', 'bodyweight', 'rating', 'note'];
 export const DEFAULT_FIELDS = Object.freeze({
-  exerciseNames: true, exactSets: false, effort: false, volume: false,
-  bodyweight: false, rating: false, note: false
+  exerciseNames: true, exactSets: true, effort: true, volume: true,
+  bodyweight: true, rating: true, note: true
 });
 export const CHALLENGE_METRICS = ['sessions', 'minutes', 'sets', 'volume', 'prs'];
 const PHOTO_ID = /^[a-f0-9-]{20,40}\.(jpg|png)$/;
@@ -25,10 +25,11 @@ const validISODate = value => {
 export function defaultSocialProfile(user) {
   return {
     userId: user.id, displayName: cleanText(user.name, 40), bio: '', accent: 'lime',
-    enabled: true, rankingsEnabled: false, enabledAt: isoNow(),
+    enabled: true, rankingsEnabled: true, enabledAt: isoNow(),
     rankingsEnabledAt: null,
-    defaultPublish: false, askFields: true, fields: { ...DEFAULT_FIELDS },
-    notifications: { kudos: false, comments: false, challenges: false }
+    defaultPublish: true, askFields: false, fields: { ...DEFAULT_FIELDS },
+    notifications: { kudos: true, comments: true, challenges: true },
+    socialDefaultsEnabledMigrated: true
   };
 }
 
@@ -184,11 +185,24 @@ export function createSocialService({ dataDir, users, readState, writeState, isA
     data.profiles[user.id] = profile;
     return profile;
   }
-  // One-time migration for accounts created before membership became mandatory: anyone with no
-  // profile record at all gets enrolled exactly like a fresh signup, same "now, never backdated"
-  // rule. A profile that already exists (someone who opted in under the old opt-in flow) is left
-  // untouched — its own enabledAt keeps standing.
-  if (enabled) { let migrated = false; for (const u of users()) if (!data.profiles[u.id]) { enroll(u); migrated = true; } if (migrated) persist(); }
+  // One-time migration for accounts created before membership became mandatory or before the
+  // enabled-by-default settings. Consent timestamps are deliberately left untouched.
+  if (enabled) {
+    let migrated = false;
+    for (const u of users()) {
+      if (!data.profiles[u.id]) { enroll(u); migrated = true; continue; }
+      const profile = data.profiles[u.id];
+      if (profile.socialDefaultsEnabledMigrated) continue;
+      profile.rankingsEnabled = true;
+      profile.defaultPublish = true;
+      profile.askFields = false;
+      profile.fields = { ...DEFAULT_FIELDS };
+      profile.notifications = { ...profile.notifications, kudos: true, comments: true, challenges: true };
+      profile.socialDefaultsEnabledMigrated = true;
+      migrated = true;
+    }
+    if (migrated) persist();
+  }
 
   function eligible(workout, profile) {
     return profile?.enabled && workout?.social?.eligible && workout.origin === 'tracked' && finite(workout.end) >= Date.parse(profile.enabledAt || 0);

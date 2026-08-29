@@ -3,12 +3,78 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildRankings, createSocialService, DEFAULT_FIELDS, mondayOf } from '../social/service.js';
+import { buildRankings, createSocialService, DEFAULT_FIELDS, defaultSocialProfile, mondayOf } from '../social/service.js';
 
 const tracked = (id, d, { unit = 'kg', vol = 1000, minutes = 60, prs = 1, publish = true, fields = DEFAULT_FIELDS } = {}) => ({
   id, d, start: Date.parse(`${d}T10:00:00Z`), end: Date.parse(`${d}T10:00:00Z`) + minutes * 60000,
   name: 'Push', origin: 'tracked', unit, vol, prs: Array.from({ length: prs }, (_, i) => `pr${i}`),
   social: { eligible: true, publish, fields }, entries: [{ id: 'bench', n: 'Bench press', sets: [{ done: true, w: 100, r: 5, rir: 2 }] }]
+});
+
+const writeSocialData = (dir, profiles) => fs.writeFileSync(path.join(dir, 'social.json'), JSON.stringify({ profiles }));
+
+test('new social profiles enable every social and privacy feature by default', () => {
+  const profile = defaultSocialProfile({ id: 'new-user', name: 'New User' });
+  assert.deepEqual(profile.fields, Object.fromEntries([
+    'exerciseNames', 'exactSets', 'effort', 'volume', 'bodyweight', 'rating', 'note'
+  ].map(field => [field, true])));
+  assert.equal(profile.rankingsEnabled, true);
+  assert.equal(profile.defaultPublish, true);
+  assert.equal(profile.askFields, false);
+  assert.deepEqual(profile.notifications, { kudos: true, comments: true, challenges: true });
+});
+
+test('social-defaults migration is idempotent after a user opts out', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opengym-social-migration-idempotent-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const user = { id: 'u1', name: 'Kaio' };
+  const legacy = { userId: user.id, enabled: true, rankingsEnabled: false, enabledAt: '2026-01-02T03:04:05.006Z', rankingsEnabledAt: null, defaultPublish: false, askFields: true, fields: { ...DEFAULT_FIELDS, note: false }, notifications: { kudos: false, comments: false, challenges: false } };
+  writeSocialData(dir, { [user.id]: legacy });
+  const options = { dataDir: dir, users: () => [user], readState: () => ({ workouts: [] }), writeState: () => {}, isAdmin: () => false, sendPush: () => {}, enabled: true, now: () => new Date('2026-08-27T12:00:00Z') };
+  const first = createSocialService(options);
+  await first.flush();
+  const profile = first.getData().profiles[user.id];
+  assert.equal(profile.rankingsEnabled, true);
+  assert.equal(profile.defaultPublish, true);
+  assert.equal(profile.askFields, false);
+  assert.deepEqual(profile.fields, DEFAULT_FIELDS);
+  assert.deepEqual(profile.notifications, { kudos: true, comments: true, challenges: true });
+  assert.equal(profile.socialDefaultsEnabledMigrated, true);
+  profile.defaultPublish = false;
+  profile.fields.note = false;
+  fs.writeFileSync(path.join(dir, 'social.json'), JSON.stringify(first.getData()));
+
+  const second = createSocialService(options);
+  assert.equal(second.getData().profiles[user.id].defaultPublish, false);
+  assert.equal(second.getData().profiles[user.id].fields.note, false);
+  assert.equal(second.getData().profiles[user.id].socialDefaultsEnabledMigrated, true);
+});
+
+test('social-defaults migration preserves consent timestamps byte-for-byte', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opengym-social-migration-time-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const user = { id: 'u1', name: 'Kaio' };
+  const enabledAt = '2026-01-02T03:04:05.006+05:30';
+  const rankingsEnabledAt = '2026-02-03T04:05:06.007-03:00';
+  writeSocialData(dir, { [user.id]: { userId: user.id, enabled: true, rankingsEnabled: false, enabledAt, rankingsEnabledAt, defaultPublish: false, askFields: true, fields: {}, notifications: {} } });
+  const service = createSocialService({ dataDir: dir, users: () => [user], readState: () => ({}), writeState: () => {}, isAdmin: () => false, sendPush: () => {}, enabled: true });
+  await service.flush();
+  assert.deepEqual({
+    enabledAt: service.getData().profiles[user.id].enabledAt,
+    rankingsEnabledAt: service.getData().profiles[user.id].rankingsEnabledAt
+  }, { enabledAt, rankingsEnabledAt });
+});
+
+test('migration does not make a workout before enabledAt publishable', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opengym-social-migration-history-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const user = { id: 'u1', name: 'Kaio' };
+  const workout = tracked('old', '2026-08-20');
+  writeSocialData(dir, { [user.id]: { userId: user.id, displayName: user.name, accent: 'lime', enabled: true, rankingsEnabled: false, enabledAt: '2026-08-21T00:00:00.000Z', rankingsEnabledAt: null, defaultPublish: false, askFields: true, fields: {}, notifications: {} } });
+  const state = { workouts: [workout] };
+  const service = createSocialService({ dataDir: dir, users: () => [user], readState: () => state, writeState: () => {}, isAdmin: () => false, sendPush: () => {}, enabled: true });
+  await service.syncUserState(user, state);
+  assert.equal(service.getData().posts['u1:old'], undefined);
 });
 
 test('mondayOf uses an ISO week independent of server locale', () => {

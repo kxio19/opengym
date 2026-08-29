@@ -15,14 +15,17 @@ self.addEventListener('push', e => {
     icon: 'icon-512.png',
     badge: 'icon-180.png',
     tag: data.tag || 'opengym',
-    renotify: true
+    renotify: true,
+    data: data.url ? { url: data.url } : {}
   }))
 })
 self.addEventListener('notificationclick', e => {
   e.notification.close()
+  const url = e.notification.data?.url
+  const target = new URL(url || './', self.registration.scope).href
   e.waitUntil(self.clients.matchAll({ type: 'window' }).then(clients => {
     const c = clients.find(c => 'focus' in c)
-    return c ? c.focus() : self.clients.openWindow('./')
+    return c ? (url ? c.navigate(target).then(() => c.focus()) : c.focus()) : self.clients.openWindow(target)
   }))
 })
 
