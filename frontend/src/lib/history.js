@@ -209,13 +209,28 @@ export function unitOf(units, idx) { return units.find(u => u.includes(idx)) || 
 // schedules is kept. Streak-shifting either way from a schedule edit is the accepted trade-off.
 export function planStreak(S) {
   if (!S.routines.length) return 0   // nothing to keep a streak against before the first plan
+  // Having routines is not the same as having them scheduled. With an empty S.week and no
+  // day overrides, effectiveRoutineId returns null for *every* date, so every day past and
+  // future reads as "the plan said rest" and the backward walk below never breaks — it ran
+  // to its own safety valve and reported 3651. A plan nobody put on the calendar is not a
+  // plan being kept, so it counts as no plan at all.
+  const scheduled = Object.values(S.week).some(Boolean) ||
+    Object.values(S.dayPlan).some(v => v && v !== 'rest')
+  if (!scheduled) return 0
   const doneDays = new Set(S.workouts.map(w => w.d))
+  // Nor is a streak something you can hold before you ever trained. Without this, a profile
+  // created today inherits every rest day the schedule implies for dates it did not exist on.
+  if (!doneDays.size) return 0
+  // The count may not reach back past the first day this profile has any record of — days
+  // before that are not rest days kept, they are days with nobody to keep them.
+  const floor = [...doneDays, ...Object.keys(S.dayPlan)].sort()[0]
   const compliant = iso => effectiveRoutineId(S, iso) === null || doneDays.has(iso)
   let streak = compliant(todayISO()) ? 1 : 0
   const cur = new Date()
   cur.setDate(cur.getDate() - 1)
   for (let i = 0; i < 3650; i++) {   // 10-year safety valve, not a product limit
-    if (!compliant(isoOf(cur))) break
+    const iso = isoOf(cur)
+    if (iso < floor || !compliant(iso)) break
     streak++
     cur.setDate(cur.getDate() - 1)
   }

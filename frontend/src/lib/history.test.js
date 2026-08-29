@@ -329,6 +329,29 @@ describe('planStreak', () => {
     expect(planStreak({ routines: [], workouts: [{ d: today() }], week: {}, dayPlan: {} })).toBe(0)
   })
 
+  // The bug Sergio hit: routines loaded but never put on the weekly schedule, so every date
+  // read as a rest day and the backward walk ran to its 10-year safety valve — the flame said
+  // 3651. These three cases are the ones that made the number impossible.
+  it('is 0 when the routines were never put on the calendar, instead of counting all of time', () => {
+    const routines = [{ id: 'r1' }]
+    expect(planStreak({ routines, workouts: [{ d: today() }], week: {}, dayPlan: {} })).toBe(0)
+  })
+
+  it('is 0 for a profile that has a schedule but has never trained', () => {
+    const routines = [{ id: 'r1' }]
+    const week = { [new Date().getDay()]: 'r1' }
+    expect(planStreak({ routines, workouts: [], week, dayPlan: {} })).toBe(0)
+  })
+
+  it('never counts back past the first day the profile has any record of', () => {
+    const routines = [{ id: 'r1' }]
+    // Registered and trained today, under a schedule that trains on this weekday only. The
+    // six days before are rest by that schedule, but this profile did not exist on them, so
+    // they are not a streak it kept — the count is 1, not 7.
+    const week = { [new Date().getDay()]: 'r1' }
+    expect(planStreak({ routines, workouts: [{ d: today() }], week, dayPlan: {} })).toBe(1)
+  })
+
   it('counts a rest day exactly like a trained one, and stops at the first missed training day', () => {
     const routines = [{ id: 'r1' }]
     const workouts = [{ d: daysAgo(1) }, { d: daysAgo(2) }]
